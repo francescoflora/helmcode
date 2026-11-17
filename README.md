@@ -58,15 +58,9 @@ Al primo avvio scegli o crea un progetto dalla schermata iniziale.
 
 ## Aggiornamenti automatici
 
-L'auto-update usa `tauri-plugin-updater` con gli artefatti firmati prodotti dalla release GitHub.
+helmcode controlla gli aggiornamenti all'avvio e li propone nel menu Aggiornamenti. Dopo il download l'app salva le modifiche se richiesto e si riavvia.
 
-1. La versione è definita in `package.json`; `npm run sync-version` la allinea a `src-tauri/Cargo.toml`.
-2. La CI (`.github/workflows/ci.yml`) gira su `develop` e `master` e verifica lint, test, build e test Rust.
-3. Dopo una CI verde su `master`, `.github/workflows/release.yml` crea il tag/release `v<versione>`, l'installer NSIS con aggiornamento firmato, l'eseguibile standalone e il pacchetto MSIX.
-4. I secret GitHub richiesti sono `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; la chiave pubblica è in `src-tauri/tauri.conf.json`.
-5. Per pubblicare: aggiorna la versione, esegui `npm run sync-version`, fai commit e push su `master`. Il tag viene creato dalla pipeline, non manualmente.
-
-Le app installate controllano `latest.json` all'avvio, mostrano l'aggiornamento nel menu e riavviano al termine dell'installazione.
+Puoi controllare manualmente dal menu Aggiornamenti o dalle impostazioni.
 
 ## Modalità AGENT
 
