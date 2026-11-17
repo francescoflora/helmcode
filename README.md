@@ -4,6 +4,8 @@ Uno spazio desktop essenziale per sviluppare con AI, codice e Git. L'interfaccia
 
 Realizzato per Windows con Tauri v2, React, CodeMirror 6 e xterm.js.
 
+Repository: [github.com/francescoflora/helmcode](https://github.com/francescoflora/helmcode)
+
 In **Impostazioni → Aspetto** puoi scegliere **Scuro**, **Chiaro** o **Sistema**.
 La preferenza viene ricordata e applicata anche a editor, diff, terminali e menu;
 cambiarla conserva le sessioni e il contenuto dei file. **Sistema** segue anche
@@ -56,20 +58,15 @@ Al primo avvio scegli o crea un progetto dalla schermata iniziale.
 
 ## Aggiornamenti automatici
 
-L'auto-update usa `tauri-plugin-updater` e la configurazione di release separata `src-tauri/tauri.release.conf.json`. La build locale normale non richiede chiavi; la build di release sì.
+L'auto-update usa `tauri-plugin-updater` con gli artefatti firmati prodotti dalla release GitHub.
 
-1. Genera una coppia di chiavi:
+1. La versione è definita in `package.json`; `npm run sync-version` la allinea a `src-tauri/Cargo.toml`.
+2. La CI (`.github/workflows/ci.yml`) gira su `develop` e `master` e verifica lint, test, build e test Rust.
+3. Dopo una CI verde su `master`, `.github/workflows/release.yml` crea il tag/release `v<versione>`, l'installer NSIS con aggiornamento firmato, l'eseguibile standalone e il pacchetto MSIX.
+4. I secret GitHub richiesti sono `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; la chiave pubblica è in `src-tauri/tauri.conf.json`.
+5. Per pubblicare: aggiorna la versione, esegui `npm run sync-version`, fai commit e push su `master`. Il tag viene creato dalla pipeline, non manualmente.
 
-   ```powershell
-   npm run tauri signer generate -- -w "$env:USERPROFILE\.tauri\helmcode.key"
-   ```
-
-2. Copia la chiave pubblica in `src-tauri/tauri.release.conf.json` al posto di `REPLACE_WITH_TAURI_SIGNING_PUBLIC_KEY`.
-3. Aggiungi i secret GitHub `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-4. Imposta `UPDATER_READY = true` in `src/lib/updater.ts`.
-5. Pubblica un tag `v*` per avviare `.github/workflows/release.yml`.
-
-Finché la chiave non è configurata, il pannello aggiornamenti mostra il link alle release GitHub e non tenta download automatici.
+Le app installate controllano `latest.json` all'avvio, mostrano l'aggiornamento nel menu e riavviano al termine dell'installazione.
 
 ## Modalità AGENT
 

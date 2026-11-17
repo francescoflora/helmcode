@@ -35,7 +35,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCMEI2RjJEMjU5N0E1NDgKUldSSXBaY2xMVzhMSzZ2SGxNV0s4cU5rZjFCMnZSdzhvWDY1ekpXOFk1MzlDYlUwSWJiZExUbngK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzMzhCNTA1QUJDM0I0QTIKUldTaXRNT3JCYlU0czFVRWkvdTZvOG5vVFZUQXlJRC9Ma1NoYnZoVktFd3l3RHZwZG1pV1FTaGQK",
       "endpoints": [
         "https://github.com/francescoflora/helmcode/releases/latest/download/latest.json"
       ],

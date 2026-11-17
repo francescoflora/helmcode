@@ -42,6 +42,19 @@ export function AboutModal({ onClose }: { onClose: () => void }) {
             <dt className="text-[var(--secondary)]">Tecnologie</dt>
             <dd className="text-[var(--text)]">Tauri · React · Rust</dd>
           </div>
+          <div className="flex items-center justify-between gap-4">
+            <dt className="text-[var(--secondary)]">GitHub</dt>
+            <dd className="min-w-0 text-right">
+              <button
+                type="button"
+                className="truncate text-[var(--accent)] hover:underline"
+                title="Apri il repository GitHub"
+                onClick={() => void openExternalUrl(GITHUB_URL)}
+              >
+                github.com/francescoflora/helmcode
+              </button>
+            </dd>
+          </div>
         </dl>
 
         <button
