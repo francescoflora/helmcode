@@ -25,10 +25,12 @@ const statusLabels: Record<string, string> = {
 export function GitPanel({ workspace, status, activePath, onReveal, onDiff, onRevert, onRefresh, onBeforeMerge, onNotify }: Props) {
   const [mergeMode, setMergeMode] = useState<"choose" | "from" | null>(null);
   const [resolverConflicts, setResolverConflicts] = useState<string[] | null>(null);
+  const [resolverOperation, setResolverOperation] = useState<"merge" | "cherry-pick">("merge");
 
   useEffect(() => {
     setMergeMode(null);
     setResolverConflicts(null);
+    setResolverOperation("merge");
   }, [workspace]);
 
   if (!status) return <div className="px-4 py-5 text-[13px] text-[var(--muted)]">Lettura stato Git…</div>;
@@ -48,17 +50,23 @@ export function GitPanel({ workspace, status, activePath, onReveal, onDiff, onRe
     setMergeMode(null);
     onRefresh();
     if (outcome.conflicts.length) {
+      setResolverOperation("merge");
       setResolverConflicts(outcome.conflicts);
     } else {
       onNotify?.("Merge completato.");
     }
   };
 
+  const openResolver = (conflicts: string[]) => {
+    setResolverOperation(status.cherryPicking ? "cherry-pick" : "merge");
+    setResolverConflicts(conflicts);
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <CommitBox workspace={workspace} status={status} onCommitted={onRefresh} onMerge={setMergeMode} />
-      {conflicts.length > 0 && <button type="button" className="git-resolve-conflicts" onClick={() => setResolverConflicts(conflicts)}><AlertIcon className="h-4 w-4 shrink-0" />Risolvi conflitti ({conflicts.length})</button>}
-      {status.merging && conflicts.length === 0 && <button type="button" className="git-resolve-conflicts" onClick={() => setResolverConflicts([])}><MergeIcon className="h-4 w-4 shrink-0" />Completa merge</button>}
+      {conflicts.length > 0 && <button type="button" className="git-resolve-conflicts" onClick={() => openResolver(conflicts)}><AlertIcon className="h-4 w-4 shrink-0" />Risolvi conflitti ({conflicts.length})</button>}
+      {(status.merging || status.cherryPicking) && conflicts.length === 0 && <button type="button" className="git-resolve-conflicts" onClick={() => openResolver([])}><MergeIcon className="h-4 w-4 shrink-0" />Completa {status.cherryPicking ? "cherry-pick" : "merge"}</button>}
       <div className="scroll-area min-h-0 flex-1 overflow-auto py-2">
         <div className="mb-4">
           <div className="mb-1 flex items-center justify-between px-3 text-xs font-medium text-[var(--muted)]"><span>Modifiche</span><span>{status.changes.length}</span></div>
@@ -88,7 +96,12 @@ export function GitPanel({ workspace, status, activePath, onReveal, onDiff, onRe
         </span>
       </div>
       {mergeMode && <MergeModal workspace={workspace} currentBranch={status.branch} mode={mergeMode} onBeforeMerge={onBeforeMerge} onMerged={handleMerged} onClose={() => setMergeMode(null)} />}
-      {resolverConflicts && <ConflictResolverModal workspace={workspace} conflicts={resolverConflicts} onClose={() => { setResolverConflicts(null); onRefresh(); }} onResolved={(outcome) => { setResolverConflicts(null); onRefresh(); onNotify?.(outcome === "completed" ? "Merge completato." : "Merge annullato."); }} />}
+      {resolverConflicts && <ConflictResolverModal workspace={workspace} conflicts={resolverConflicts} operation={resolverOperation} onClose={() => { setResolverConflicts(null); onRefresh(); }} onResolved={(outcome) => {
+        setResolverConflicts(null);
+        onRefresh();
+        const label = resolverOperation === "cherry-pick" ? "Cherry-pick" : "Merge";
+        onNotify?.(outcome === "completed" ? `${label} completato.` : `${label} annullato.`);
+      }} />}
     </div>
   );
 }

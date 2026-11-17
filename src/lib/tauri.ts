@@ -78,6 +78,10 @@ export const api = {
     invoke<GitStatus>("git_create_branch", { expectedWorkspace, name, base, keepChanges }),
   gitCommit: (expectedWorkspace: string, message: string, push: boolean) =>
     invoke<GitStatus>("git_commit", { expectedWorkspace, message, push }),
+  gitPush: (expectedWorkspace: string) => invoke<GitStatus>("git_push", { expectedWorkspace }),
+  gitPull: (expectedWorkspace: string) => invoke<MergeOutcome>("git_pull", { expectedWorkspace }),
+  gitCherryPick: (expectedWorkspace: string, hash: string) =>
+    invoke<MergeOutcome>("git_cherry_pick", { expectedWorkspace, hash }),
   gitMerge: (expectedWorkspace: string, source: string, target: string) =>
     invoke<MergeOutcome>("git_merge", { expectedWorkspace, source, target }),
   gitCompleteMerge: (expectedWorkspace: string) =>

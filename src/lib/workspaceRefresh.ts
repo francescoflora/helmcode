@@ -5,6 +5,7 @@ export function sameGitStatus(before: GitStatus, after: GitStatus): boolean {
   return before.isRepo === after.isRepo && before.branch === after.branch
     && before.upstream === after.upstream && before.ahead === after.ahead
     && before.behind === after.behind && before.merging === after.merging
+    && before.cherryPicking === after.cherryPicking
     && before.changes.length === after.changes.length
     && before.changes.every((item, index) => {
       const next = after.changes[index];

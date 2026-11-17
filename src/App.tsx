@@ -9,7 +9,7 @@ import { FileTypeIcon } from "./components/FileTypeIcon";
 import { GitPanel as GitPanelComponent } from "./components/GitPanel";
 import { GitDiff } from "./components/GitDiff";
 import { GitHistory as GitHistoryComponent } from "./components/GitHistory";
-import { GitBranchIcon, RefreshIcon, StatusBranchIcon, StatusErrorIcon, StatusSyncIcon, StatusWarningIcon, XIcon } from "./components/Icons";
+import { CloudDownIcon, CloudUpIcon, GitBranchIcon, RefreshIcon, StatusBranchIcon, StatusErrorIcon, StatusSyncIcon, StatusWarningIcon, SyncIcon, XIcon } from "./components/Icons";
 import { NewProjectModal } from "./components/NewProjectModal";
 import { OpenInWindowModal } from "./components/OpenInWindowModal";
 import { SearchPanel as SearchPanelComponent } from "./components/SearchPanel";
@@ -36,7 +36,7 @@ import { applyAppWindowSize, applyStartWindowSize, showWindow, useWindowMaximize
 import type { ActivityView, FileOperation, GitStatus, LspDiagnostic, ReplaceRequest, ReplaceResult, RevealRequest, Tab, TerminalTab, WorkspaceMode, WorkspaceMutation } from "./types";
 import { basename, makeTab } from "./types";
 
-const EMPTY_GIT: GitStatus = { isRepo: false, branch: "", changes: [], upstream: null, ahead: 0, behind: 0, merging: false };
+const EMPTY_GIT: GitStatus = { isRepo: false, branch: "", changes: [], upstream: null, ahead: 0, behind: 0, merging: false, cherryPicking: false };
 type PendingOpen =
   | { kind: "recent"; path: string; name: string }
   | { kind: "create"; parent: string; name: string };
@@ -86,6 +86,7 @@ export default function App() {
   const [tasksVersion, setTasksVersion] = useState(0);
   const [git, setGit] = useState<GitStatus>(EMPTY_GIT);
   const [fetchingGit, setFetchingGit] = useState(false);
+  const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [problemsRequest, setProblemsRequest] = useState(0);
   const [showDiff, setShowDiff] = useState(false);
   const [diffPath, setDiffPath] = useState<string | null>(null);
@@ -242,6 +243,7 @@ export default function App() {
     if (!workspace) return;
     setSession(null);
     setGit(EMPTY_GIT);
+    setSyncMenuOpen(false);
   }, [workspace]);
 
   useEffect(() => {
@@ -597,14 +599,8 @@ export default function App() {
 
   const finishSplash = useCallback(() => setShowSplash(false), []);
 
-  const selectView = useCallback((view: ActivityView) => {
-    if (activeView === view) setSidebarCollapsed((current) => !current);
-    else { setActiveView(view); setSidebarCollapsed(false); }
-    if (view === "git") { setShowDiff(false); setShowHistory(true); }
-    else setShowHistory(false);
-  }, [activeView]);
-
   const showView = useCallback((view: ActivityView) => {
+    setShowProjects(false);
     setMode("ide");
     setActiveView(view);
     setSidebarCollapsed(false);
@@ -612,26 +608,98 @@ export default function App() {
     else setShowHistory(false);
   }, []);
 
-  const fetchRepository = async () => {
+  const toggleView = useCallback((view: ActivityView): "opened" | "closed" => {
+    if (activeView === view && !sidebarCollapsed && mode === "ide" && !showProjects) {
+      setSidebarCollapsed(true);
+      return "closed";
+    }
+    showView(view);
+    return "opened";
+  }, [activeView, mode, showProjects, showView, sidebarCollapsed]);
+
+  const toggleTerminal = useCallback(() => {
+    if (!workspace) { notify("Apri un progetto per usare i terminali."); return; }
+    if (terminalOpen && mode === "ide" && !showProjects) {
+      setTerminalOpen(false);
+      return;
+    }
+    setShowProjects(false);
+    setMode("ide");
+    setTerminalOpen(true);
+    setTerminalFocusRequest((value) => value + 1);
+  }, [mode, notify, showProjects, terminalOpen, workspace]);
+
+  const syncRepository = async (action?: "fetch" | "pull" | "push" | "both") => {
     if (fetchingGit || !git.isRepo) return;
+    if (!action) {
+      if (git.behind > 0 && git.ahead > 0) { setSyncMenuOpen(true); return; }
+      action = git.behind > 0 ? "pull" : git.ahead > 0 ? "push" : "fetch";
+    }
+    setSyncMenuOpen(false);
     const requestedWorkspace = workspace;
     setFetchingGit(true);
     ++gitRequest.current;
     try {
-      const status = await api.gitFetch(requestedWorkspace);
-      if (workspaceRef.current !== requestedWorkspace) return;
-      ++gitRequest.current;
-      setGit(status);
-      setGitVersion((version) => version + 1);
+      if ((action === "pull" || action === "both") && !(await saveBeforeBuild())) return;
+      if (action === "fetch") {
+        const status = await api.gitFetch(requestedWorkspace);
+        if (workspaceRef.current !== requestedWorkspace) return;
+        ++gitRequest.current;
+        setGit(status);
+        setGitVersion((version) => version + 1);
+        return;
+      }
+      if (action === "pull" || action === "both") {
+        const outcome = await api.gitPull(requestedWorkspace);
+        if (workspaceRef.current !== requestedWorkspace) return;
+        ++gitRequest.current;
+        setGit(outcome.status);
+        setGitVersion((version) => version + 1);
+        if (outcome.conflicts.length > 0) {
+          notify("Pull completato con conflitti: risolvili dal pannello Git.");
+          return;
+        }
+      }
+      if (action === "push" || action === "both") {
+        const status = await api.gitPush(requestedWorkspace);
+        if (workspaceRef.current !== requestedWorkspace) return;
+        ++gitRequest.current;
+        setGit(status);
+        setGitVersion((version) => version + 1);
+      }
     } catch (error) {
       if (workspaceRef.current === requestedWorkspace) notify(String(error));
     } finally { setFetchingGit(false); }
   };
+  useEffect(() => {
+    if (!syncMenuOpen) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setSyncMenuOpen(false); };
+    document.addEventListener("keydown", escape, true);
+    return () => document.removeEventListener("keydown", escape, true);
+  }, [syncMenuOpen]);
   const refreshSidebar = useCallback(() => {
     setExplorerVersion((version) => version + 1);
     setGitVersion((version) => version + 1);
     setTasksVersion((version) => version + 1);
   }, []);
+
+  const cherryPickCommit = useCallback(async (hash: string) => {
+    if (!(await saveBeforeBuild())) return;
+    const requestedWorkspace = workspace;
+    ++gitRequest.current;
+    try {
+      const outcome = await api.gitCherryPick(requestedWorkspace, hash);
+      if (workspaceRef.current !== requestedWorkspace) return;
+      ++gitRequest.current;
+      setGit(outcome.status);
+      setGitVersion((version) => version + 1);
+      notify(outcome.conflicts.length > 0
+        ? "Cherry-pick con conflitti: risolvili dal pannello Git."
+        : "Cherry-pick completato.");
+    } catch (error) {
+      if (workspaceRef.current === requestedWorkspace) notify(String(error));
+    }
+  }, [notify, saveBeforeBuild, workspace]);
 
   const beginSidebarResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -836,11 +904,7 @@ export default function App() {
       if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "t") {
         event.preventDefault();
         event.stopPropagation();
-        if (!workspace) { notify("Apri un progetto per usare i terminali."); return; }
-        setShowProjects(false);
-        setMode("ide");
-        setTerminalOpen(true);
-        setTerminalFocusRequest((value) => value + 1);
+        toggleTerminal();
         return;
       }
       if (event.ctrlKey && !event.altKey && !event.metaKey && event.code === "Backquote" && workspace && !showProjects) {
@@ -851,20 +915,28 @@ export default function App() {
         else setTerminalOpen((current) => !current);
         return;
       }
-      if (!event.ctrlKey || !event.shiftKey) return;
-      if (event.key.toLowerCase() === "h" || event.key.toLowerCase() === "f") {
+      if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
+      if (event.key.toLowerCase() === "h") {
         event.preventDefault();
+        if (!workspace) { notify("Apri un progetto per usare le sezioni."); return; }
         showView("search");
-        setSearchFocus((current) => ({ nonce: current.nonce + 1, replace: event.key.toLowerCase() === "h" }));
+        setSearchFocus((current) => ({ nonce: current.nonce + 1, replace: true }));
         return;
       }
       const views: Record<string, ActivityView> = { e: "explorer", f: "search", g: "git", b: "build" };
       const view = views[event.key.toLowerCase()];
-      if (view) { event.preventDefault(); showView(view); }
+      if (view) {
+        event.preventDefault();
+        if (!workspace) { notify("Apri un progetto per usare le sezioni."); return; }
+        const opened = toggleView(view);
+        if (view === "search" && opened === "opened") {
+          setSearchFocus((current) => ({ nonce: current.nonce + 1, replace: false }));
+        }
+      }
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [showView, workspace, showProjects, notify]);
+  }, [notify, showProjects, showView, toggleTerminal, toggleView, workspace]);
 
   const openDiff = useCallback((path: string) => {
     setDiffPath(path);
@@ -910,7 +982,7 @@ export default function App() {
           />
           <div className="workspace-body">
             <div className="ide-workspace" style={{ display: mode === "ide" ? "flex" : "none" }}>
-              <ActivityBar active={activeView} collapsed={sidebarCollapsed} modifiedCount={modifiedPaths.size} problemCount={errorCount + warningCount} onSelect={selectView} terminalOpen={terminalOpen} onToggleTerminals={() => setTerminalOpen((current) => !current)} />
+              <ActivityBar active={activeView} collapsed={sidebarCollapsed} modifiedCount={modifiedPaths.size} problemCount={errorCount + warningCount} onSelect={toggleView} terminalOpen={terminalOpen} onToggleTerminals={() => setTerminalOpen((current) => !current)} />
               <aside className="project-sidebar" style={{ width: sidebarWidth, display: sidebarCollapsed ? "none" : "flex" }} aria-label="Pannello del progetto">
                 <SidebarHeader view={activeView} onCreate={(kind) => setExplorerCreateRequest((current) => ({ id: current.id + 1, kind }))} onRefresh={refreshSidebar} />
                 <div className="sidebar-content" hidden={activeView !== "explorer"}><FileExplorer createRequest={explorerCreateRequest} onCreated={refreshSidebar} workspace={workspace} version={explorerVersion} modified={modifiedPaths} activePath={activePath} onOpen={openExplorerFile} onMutate={mutateFiles} revealRequest={explorerReveal} /></div>
@@ -945,7 +1017,7 @@ export default function App() {
                     <div className="editor-fill">{ideOpened && <Suspense fallback={<div className="panel-empty">Apertura editor…</div>}><EditorPane workspace={workspace} locked={mutatingFiles} tab={activeTab} diagnostics={activeDiagnostics} reveal={reveal} onChange={handleChange} onSave={(path) => void saveTab(path)} onNavigate={openSymbol} onScroller={setEditorScroller} /></Suspense>}</div>
                   </div>
                   {showDiff && comparedPath && <section className="diff-document" aria-label="Differenze del file rispetto a Git"><GitDiff workspace={workspace} path={comparedPath} content={activeTab?.content} version={gitVersion} onScroller={setDiffScroller} /></section>}
-                  {historyVisible && <GitHistory key={workspace} workspace={workspace} version={gitVersion} />}
+                  {historyVisible && <GitHistory key={workspace} workspace={workspace} version={gitVersion} onCherryPick={cherryPickCommit} />}
                 </div>
                 <TerminalPanel key={workspace} open={terminalOpen} active={mode === "ide" && !showProjects} createRequest={newTerminalRequest} focusRequest={terminalFocusRequest} onHide={hideTerminals} />
               </main>
@@ -962,7 +1034,17 @@ export default function App() {
                   badge={git.changes.length > 0 ? "*" : undefined} hasChanges={git.changes.length > 0}
                   onBeforeCheckout={canCheckout} onSaveAll={saveBeforeBuild} onNotify={notify} onChanged={refreshSidebar} />
               : <button type="button" onClick={() => showView("git")} title="Visualizza branch e modifiche Git" className="status-item"><span className="status-branch-icon"><StatusBranchIcon /></span><span>Nessun repository</span></button>}
-            {git.isRepo && <button type="button" onClick={() => void fetchRepository()} disabled={fetchingGit} aria-label="Aggiorna repository" aria-busy={fetchingGit} title={`Aggiorna repository (fetch) · ${git.ahead || 0} da inviare, ${git.behind || 0} da scaricare${git.upstream ? ` · ${git.upstream}` : " · Nessun branch remoto associato"}`} className="status-item status-sync"><StatusSyncIcon className={fetchingGit ? "animate-spin" : ""} />{(git.behind > 0 || git.ahead > 0) && <><span className="status-sync-count" title={`${git.behind} commit da scaricare`}>↓{git.behind}</span><span className="status-sync-count" title={`${git.ahead} commit da inviare`}>↑{git.ahead}</span></>}</button>}
+            {git.isRepo && <div className="status-sync-wrap">
+              <button type="button" onClick={() => syncMenuOpen ? setSyncMenuOpen(false) : void syncRepository()} disabled={fetchingGit} aria-label="Sincronizza repository" aria-busy={fetchingGit} aria-haspopup="menu" aria-expanded={syncMenuOpen} title={`Sincronizza repository · ${git.ahead || 0} da inviare, ${git.behind || 0} da scaricare${git.upstream ? ` · ${git.upstream}` : " · Nessun branch remoto associato"}`} className="status-item status-sync"><StatusSyncIcon className={fetchingGit ? "animate-spin" : ""} />{(git.behind > 0 || git.ahead > 0) && <><span className="status-sync-count" title={`${git.behind} commit da scaricare`}>↓{git.behind}</span><span className="status-sync-count" title={`${git.ahead} commit da inviare`}>↑{git.ahead}</span></>}</button>
+              {syncMenuOpen && <>
+                <div className="fixed inset-0 z-40" onClick={() => setSyncMenuOpen(false)} />
+                <div className="status-sync-menu" role="menu" aria-label="Sincronizza repository">
+                  <button type="button" role="menuitem" onClick={() => void syncRepository("pull")}><CloudDownIcon className="h-4 w-4" /><span>Pull (↓{git.behind})</span></button>
+                  <button type="button" role="menuitem" onClick={() => void syncRepository("push")}><CloudUpIcon className="h-4 w-4" /><span>Push (↑{git.ahead})</span></button>
+                  <button type="button" role="menuitem" onClick={() => void syncRepository("both")}><SyncIcon className="h-4 w-4" /><span>Pull e push</span></button>
+                </div>
+              </>}
+            </div>}
             <button type="button" onClick={() => { showView("build"); setProblemsRequest((value) => value + 1); }} title="Apri build e problemi" aria-label={`${errorCount} errori, ${warningCount} avvisi. Apri Problemi in HELM`} className="status-item status-problems"><StatusErrorIcon /><span>{errorCount}</span><StatusWarningIcon /><span>{warningCount}</span></button>
             <span className="ml-auto truncate">{mode === "ai" ? `AGENT · ${agentLabel(session?.agent ?? prefs.agent)}` : `HELM · ${activeTab ? activeTab.path.split(".").pop()?.toUpperCase() : "helmcode"}`}</span>
             <span>UTF-8</span>

@@ -93,6 +93,7 @@ export type GitStatus = {
   ahead: number;
   behind: number;
   merging: boolean;
+  cherryPicking: boolean;
 };
 
 export type GitBranch = {
@@ -120,6 +121,7 @@ export type GitCommit = {
 export type GitLog = {
   commits: GitCommit[];
   truncated: boolean;
+  remotes: string[];
 };
 
 export type GitCommitFile = {

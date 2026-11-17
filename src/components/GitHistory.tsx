@@ -1,18 +1,20 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { layoutCommitGraph, laneColor, type GraphRow } from "../lib/gitGraph";
 import { api } from "../lib/tauri";
 import type { GitCommitFile, GitLog } from "../types";
 import { CommitDiff } from "./CommitDiff";
 import { FileTypeIcon } from "./FileTypeIcon";
-import { GitBranchIcon, RefreshIcon } from "./Icons";
+import { CloudIcon, GitBranchIcon, RefreshIcon, TagIcon, TargetIcon } from "./Icons";
 
 const PAGE_SIZE = 300;
 const MAX_COMMITS = 2000;
 const ROW_HEIGHT = 30;
 const LANE_WIDTH = 18;
 const laneStroke = (lane: number) => `var(--git-lane-${lane % 12}, ${laneColor(lane)})`;
-type Props = { workspace: string; version: number };
+type Props = { workspace: string; version: number; onCherryPick: (hash: string) => void | Promise<void> };
 type SelectedFile = { hash: string; shortHash: string; path: string; oldPath: string | null };
+type RefKind = "head" | "local" | "remote" | "tag";
+type CommitMenu = { hash: string; shortHash: string; x: number; y: number };
 
 function dateLabel(value: string, full = false): string {
   const date = new Date(value);
@@ -20,13 +22,22 @@ function dateLabel(value: string, full = false): string {
     date.toLocaleString("it-IT", full ? { dateStyle: "full", timeStyle: "long" } : { dateStyle: "medium", timeStyle: "short" });
 }
 
-function refLabel(value: string): { label: string; kind: "head" | "tag" | "branch" } {
+function refLabel(value: string, remotes: string[]): { label: string; kind: RefKind } {
   if (value.startsWith("HEAD -> ")) return { label: value.slice(8), kind: "head" };
   if (value.startsWith("tag: ")) return { label: value.slice(5), kind: "tag" };
-  return { label: value, kind: "branch" };
+  if (remotes.some((remote) => value.startsWith(`${remote}/`))) return { label: value, kind: "remote" };
+  return { label: value, kind: "local" };
 }
 
-export function GitHistory({ workspace, version }: Props) {
+function RefIcon({ kind }: { kind: RefKind }) {
+  const className = "git-ref-icon";
+  if (kind === "head") return <TargetIcon className={className} />;
+  if (kind === "remote") return <CloudIcon className={className} />;
+  if (kind === "tag") return <TagIcon className={className} />;
+  return <GitBranchIcon className={className} />;
+}
+
+export function GitHistory({ workspace, version, onCherryPick }: Props) {
   const [log, setLog] = useState<GitLog | null>(null);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(true);
@@ -37,6 +48,7 @@ export function GitHistory({ workspace, version }: Props) {
   const [filesError, setFilesError] = useState<string | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
   const [selected, setSelected] = useState<SelectedFile | null>(null);
+  const [menu, setMenu] = useState<CommitMenu | null>(null);
   const filesRequest = useRef(0);
 
   useEffect(() => {
@@ -49,6 +61,17 @@ export function GitHistory({ workspace, version }: Props) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [workspace, version, limit, reload]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMenu(null);
+    };
+    document.addEventListener("keydown", escape, true);
+    return () => document.removeEventListener("keydown", escape, true);
+  }, [menu]);
 
   const layout = useMemo(() => layoutCommitGraph(log?.commits ?? []), [log]);
   const graphWidth = Math.max(40, 24 + (layout.lanes - 1) * LANE_WIDTH);
@@ -94,7 +117,12 @@ export function GitHistory({ workspace, version }: Props) {
             <span role="columnheader">Commit</span>
           </div>
           {layout.rows.map((row) => <Fragment key={row.commit.hash}>
-            <CommitRow row={row} width={graphWidth} expanded={expanded === row.commit.hash} onSelect={() => toggleCommit(row)} />
+            <CommitRow row={row} width={graphWidth} remotes={log?.remotes ?? []} expanded={expanded === row.commit.hash}
+              onSelect={() => toggleCommit(row)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setMenu({ hash: row.commit.hash, shortHash: row.commit.shortHash, x: event.clientX, y: event.clientY });
+              }} />
             {expanded === row.commit.hash && <div className="git-commit-files" role="region" aria-label="File modificati dal commit">
               {filesLoading ? <div className="git-commit-files-state" role="status">Lettura file del commit…</div>
                 : filesError ? <div role="alert" className="git-commit-files-state is-error">{filesError}</div>
@@ -112,21 +140,34 @@ export function GitHistory({ workspace, version }: Props) {
     {!selected && log?.truncated && <div className="git-history-more">
       <button type="button" disabled={loading} onClick={() => setLimit((value) => Math.min(MAX_COMMITS, value + PAGE_SIZE))}>Carica altri commit</button>
     </div>}
+    {menu && <>
+      <div className="commit-context-backdrop" onClick={() => setMenu(null)} onContextMenu={(event) => { event.preventDefault(); setMenu(null); }} />
+      <div className="explorer-context-menu" role="menu" aria-label={`Azioni per il commit ${menu.shortHash}`} style={{ left: menu.x, top: menu.y }}>
+        <button type="button" role="menuitem" onClick={() => { const hash = menu.hash; setMenu(null); void onCherryPick(hash); }}>
+          <GitBranchIcon className="h-4 w-4" />
+          <span>Cherry-pick sul branch corrente</span>
+        </button>
+      </div>
+    </>}
   </section>;
 }
 
-function CommitRow({ row, width, expanded, onSelect }: { row: GraphRow; width: number; expanded: boolean; onSelect: () => void }) {
+function CommitRow({ row, width, remotes, expanded, onSelect, onContextMenu }: {
+  row: GraphRow; width: number; remotes: string[]; expanded: boolean; onSelect: () => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => void;
+}) {
   const { commit } = row;
   return <div className={`git-history-row ${expanded ? "is-expanded" : ""}`} role="row" tabIndex={0} aria-expanded={expanded}
     onClick={onSelect}
+    onContextMenu={onContextMenu}
     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(); } }}
     title={`${commit.hash}\n${commit.author} <${commit.email}>\n${dateLabel(commit.date, true)}`}>
     <span className="git-history-graph" role="cell"><GraphCell row={row} width={width} /></span>
     <span className="git-history-description" role="cell">
       <span className="git-history-subject-text">{commit.subject}</span>
       {commit.refs.map((value) => {
-        const ref = refLabel(value);
-        return <span key={value} className={`git-ref is-${ref.kind}`}>{ref.label}</span>;
+        const ref = refLabel(value, remotes);
+        return <span key={value} className={`git-ref is-${ref.kind}`} title={ref.label}><RefIcon kind={ref.kind} /><span>{ref.label}</span></span>;
       })}
       {commit.unpushed && <span className="git-ref is-unpushed" title="Commit locale non ancora inviato al remoto">da inviare</span>}
     </span>
