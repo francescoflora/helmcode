@@ -122,8 +122,8 @@ export function TitleBar({
         </div>
       </div>
       <div className="mode-switch" role="group" aria-label="Modalità di lavoro">
-        <ModeButton active={mode === "ai"} label="AGENT" title="AGENT · Assistente di programmazione" onClick={() => onModeChange("ai")} icon={<RobotIcon className="h-[18px] w-[18px] shrink-0" />} />
-        <ModeButton active={mode === "ide"} label="HELM" title={`HELM · Editor · ${modifiedCount} file modificati`} onClick={() => onModeChange("ide")} icon={<HelmIcon className="h-[18px] w-[18px] shrink-0" />} count={modifiedCount} />
+        <ModeButton active={mode === "ai"} label="AGENT" title="AGENT · Assistente di programmazione (Ctrl+Shift+A)" onClick={() => onModeChange("ai")} icon={<RobotIcon className="h-[18px] w-[18px] shrink-0" />} />
+        <ModeButton active={mode === "ide"} label="HELM" title={`HELM · Editor · ${modifiedCount} file modificati (Ctrl+Shift+H)`} onClick={() => onModeChange("ide")} icon={<HelmIcon className="h-[18px] w-[18px] shrink-0" />} count={modifiedCount} />
       </div>
       <div data-tauri-drag-region className="flex min-w-0 items-center justify-end self-stretch">
         <UpdateMenu autoCheck={autoCheckUpdates} hasUnsavedChanges={hasUnsavedChanges} onSaveAll={onSaveAll} />

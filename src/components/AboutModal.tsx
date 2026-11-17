@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { APP_AUTHOR, APP_NAME, GITHUB_URL, getAppVersion } from "../lib/appinfo";
+import { APP_AUTHOR, APP_LICENSE, GITHUB_URL, LINKEDIN_URL, getAppVersion } from "../lib/appinfo";
 import { openExternalUrl } from "../lib/opener";
 import { BrandMark } from "./BrandMark";
 import { ExternalLinkIcon, XIcon } from "./Icons";
@@ -29,41 +29,33 @@ export function AboutModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <p className="text-[13px] leading-relaxed text-[var(--secondary)]">
-          {APP_NAME} è uno spazio desktop essenziale per sviluppare con AI, codice e Git.
-        </p>
-
-        <dl className="mt-4 flex flex-col gap-2 text-[13px]">
+        <dl className="flex flex-col gap-2 text-[13px]">
           <div className="flex items-center justify-between gap-4">
             <dt className="text-[var(--secondary)]">Autore</dt>
             <dd className="text-[var(--text)]">{APP_AUTHOR}</dd>
           </div>
           <div className="flex items-center justify-between gap-4">
-            <dt className="text-[var(--secondary)]">Tecnologie</dt>
-            <dd className="text-[var(--text)]">Tauri · React · Rust</dd>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-[var(--secondary)]">GitHub</dt>
-            <dd className="min-w-0 text-right">
-              <button
-                type="button"
-                className="truncate text-[var(--accent)] hover:underline"
-                title="Apri il repository GitHub"
-                onClick={() => void openExternalUrl(GITHUB_URL)}
-              >
-                github.com/francescoflora/helmcode
-              </button>
-            </dd>
+            <dt className="text-[var(--secondary)]">Licenza</dt>
+            <dd className="text-[var(--text)]">{APP_LICENSE}</dd>
           </div>
         </dl>
 
-        <button
-          type="button"
-          className="ghost-button mt-4 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-[13px]"
-          onClick={() => void openExternalUrl(GITHUB_URL)}
-        >
-          <ExternalLinkIcon className="h-4.5 w-4.5" /> Repository GitHub
-        </button>
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            type="button"
+            className="ghost-button flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-[13px]"
+            onClick={() => void openExternalUrl(GITHUB_URL)}
+          >
+            <ExternalLinkIcon className="h-4.5 w-4.5" /> Repository GitHub
+          </button>
+          <button
+            type="button"
+            className="ghost-button flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-[13px]"
+            onClick={() => void openExternalUrl(LINKEDIN_URL)}
+          >
+            <ExternalLinkIcon className="h-4.5 w-4.5" /> LinkedIn
+          </button>
+        </div>
       </div>
     </div>
   );

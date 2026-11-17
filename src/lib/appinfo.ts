@@ -2,7 +2,9 @@ import { isTauri } from "./tauri";
 
 export const APP_NAME = "helmcode";
 export const APP_AUTHOR = "Francesco Flora";
+export const APP_LICENSE = "GPL-3.0-or-later";
 export const GITHUB_URL = "https://github.com/francescoflora/helmcode";
+export const LINKEDIN_URL = "https://www.linkedin.com/in/francesco-flora-975885187/";
 export const RELEASES_URL = `${GITHUB_URL}/releases/latest`;
 declare const __APP_VERSION__: string | undefined;
 
