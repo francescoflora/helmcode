@@ -56,6 +56,22 @@ Output:
 
 Al primo avvio scegli o crea un progetto dalla schermata iniziale.
 
+## Versione
+
+`package.json` è l'unica fonte del numero di versione. `tauri.conf.json` legge `"version": "../package.json"` e Vite inietta la versione nel frontend.
+
+```powershell
+npm version patch --no-git-tag-version
+npm version minor --no-git-tag-version
+npm version major --no-git-tag-version
+```
+
+`--no-git-tag-version` aggiorna `package.json` e `package-lock.json` senza creare commit o tag. Lo script `version` esegue `scripts/sync-version.mjs`, che allinea `src-tauri/Cargo.toml`. Per aggiornare anche `src-tauri/Cargo.lock`:
+
+```powershell
+cargo update -p helmcode --precise 0.1.1
+```
+
 ## Aggiornamenti automatici
 
 helmcode controlla gli aggiornamenti all'avvio e li propone nel menu Aggiornamenti. Dopo il download l'app salva le modifiche se richiesto e si riavvia.

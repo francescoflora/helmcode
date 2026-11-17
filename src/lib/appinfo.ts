@@ -4,7 +4,9 @@ export const APP_NAME = "helmcode";
 export const APP_AUTHOR = "Francesco Flora";
 export const GITHUB_URL = "https://github.com/francescoflora/helmcode";
 export const RELEASES_URL = `${GITHUB_URL}/releases/latest`;
-export const APP_VERSION_FALLBACK = "0.1.0";
+declare const __APP_VERSION__: string | undefined;
+
+export const APP_VERSION_FALLBACK = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.1.0";
 
 export async function getAppVersion(): Promise<string> {
   if (isTauri()) {
