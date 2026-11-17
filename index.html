@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="it" spellcheck="false" autocorrect="off">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1e1e1e" />
+    <meta name="description" content="helmcode: AGENT e HELM, uno spazio essenziale per sviluppare con agenti, codice e Git." />
+    <link rel="icon" type="image/svg+xml" href="/app-icon.svg" />
+    <link rel="preload" href="/splash.svg" as="image" />
+    <title>helmcode</title>
+    <script>
+      (() => {
+        let preference = "dark";
+        try {
+          const stored = JSON.parse(localStorage.getItem("helmcode.appearance.theme") ?? '"dark"');
+          if (stored === "light" || stored === "system") preference = stored;
+        } catch { /* The default also works when storage is unavailable. */ }
+        const theme = preference === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : preference;
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        document.querySelector('meta[name="theme-color"]').setAttribute("content", theme === "light" ? "#ffffff" : "#1e1e1e");
+      })();
+    </script>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #1e1e1e;
+        color: #a6a6a6;
+        font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+      }
+      :root[data-theme="light"] body { background: #ffffff; color: #242424; }
+      :root[data-theme="light"] .boot-helm { color: #256c52; }
+      :root[data-theme="light"] .boot-code { color: #242424; }
+      #root {
+        height: 100%;
+      }
+      .boot {
+        display: grid;
+        height: 100%;
+        place-content: center;
+        justify-items: center;
+        gap: 18px;
+      }
+      .boot-mark {
+        height: 64px;
+        width: 64px;
+      }
+      .boot-label {
+        font-size: 24px;
+        font-weight: 650;
+        letter-spacing: -0.03em;
+      }
+      .boot-helm { color: #9bd6bd; }
+      .boot-code { color: #f0f0f0; }
+      html[data-theme="light"] { background: #ffffff; }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot" role="status" aria-label="Avvio di helmcode">
+        <img class="boot-mark" src="/app-icon.svg" width="64" height="64" alt="" />
+        <div class="boot-label"><span class="boot-helm">helm</span><span class="boot-code">code</span></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

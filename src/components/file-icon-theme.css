@@ -1,0 +1,55 @@
+/* File identity stays consistent across Explorer, tabs, search, and Git. */
+:root {
+  --file-file: #c5c5c5;
+}
+
+:root[data-theme="light"] {
+  --file-file: #656565;
+  --file-html: #ba5d36;
+  --file-css: #397cb5;
+  --file-javascript: #92731c;
+  --file-typescript: #3479b3;
+  --file-react: #277c94;
+  --file-rust: #97634e;
+  --file-python: #397aa6;
+  --file-python-blue: #397aa6;
+  --file-python-gold: #bc962c;
+  --file-json: #8b7428;
+  --file-markdown: #3a779f;
+  --file-git: #b25d46;
+  --file-config: #776098;
+  --file-package: #aa5c6b;
+  --file-image: #7d629f;
+  --file-video: #975e94;
+  --file-audio: #a35d75;
+  --file-archive: #8a7047;
+  --file-database: #92742e;
+  --file-document: #467b9c;
+  --file-shell: #397c59;
+  --file-c: #467bb3;
+  --file-cpp: #6269ad;
+  --file-csharp: #795ca6;
+  --file-java: #aa6c43;
+  --file-go: #297f8e;
+  --file-ruby: #ae536c;
+  --file-php: #6d67a5;
+  --file-vue: #397d5c;
+  --file-svelte: #b55f43;
+  --file-docker: #337fae;
+  --file-font: #7d609a;
+  --file-license: #88712e;
+  --file-folder: #8f7544;
+  --file-folder-source: #427fa9;
+  --file-folder-components: #377f8b;
+  --file-folder-public: #3c7c5c;
+  --file-folder-assets: #7d649f;
+  --file-folder-scripts: #8d7635;
+  --file-folder-git: #ab654e;
+  --file-folder-rust: #966a54;
+  --file-folder-tests: #5a7f43;
+  --file-folder-package: #89754d;
+  --file-folder-docs: #467d9e;
+  --file-folder-config: #7a629a;
+  --file-folder-build: #966e3e;
+  --file-monogram-ink: #fff;
+}
