@@ -89,7 +89,6 @@ export function StartScreen({
     <div className="start-screen">
       <header className="start-header" data-tauri-drag-region>
         <div className="flex min-w-0 items-center gap-3" data-tauri-drag-region>
-          <BrandMark className="h-8 w-8 shrink-0" />
           <BrandWordmark />
           {currentWorkspace && (
             <button
