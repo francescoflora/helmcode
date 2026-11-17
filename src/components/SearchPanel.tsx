@@ -181,7 +181,7 @@ export function SearchPanel({ workspace, active, tabs, version, focusRequest, di
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="search-controls">
-        <button type="button" className="search-expand" title="Mostra/nascondi Sostituisci (Ctrl+Shift+H)" aria-label="Mostra sostituisci" aria-expanded={replaceOpen} onClick={() => setReplaceOpen((open) => !open)}>
+        <button type="button" className="search-expand" title="Mostra/nascondi Sostituisci (Ctrl+Shift+R)" aria-label="Mostra sostituisci" aria-expanded={replaceOpen} onClick={() => setReplaceOpen((open) => !open)}>
           <ChevronRightIcon className={`h-4 w-4 ${replaceOpen ? "rotate-90" : ""}`} />
         </button>
         <div className="min-w-0 flex-1 space-y-1.5">

@@ -32,7 +32,8 @@ import { applyMutationToTabs, movedPath, pathContains } from "./lib/fileOperatio
 import { useSyncedScroll } from "./lib/syncScroll";
 import { createCoalescedRequest } from "./lib/coalescedRequest";
 import { applyDiskRefresh, sameGitStatus } from "./lib/workspaceRefresh";
-import { applyAppWindowSize, applyStartWindowSize, showWindow, useWindowMaximized, useWorkspaceWindowSize } from "./lib/window";
+import { applyAppWindowSize, applyStartWindowSize, setWindowTitle, showWindow, useWindowMaximized, useWorkspaceWindowSize } from "./lib/window";
+import { APP_NAME } from "./lib/appinfo";
 import type { ActivityView, FileOperation, GitStatus, LspDiagnostic, ReplaceRequest, ReplaceResult, RevealRequest, Tab, TerminalTab, WorkspaceMode, WorkspaceMutation } from "./types";
 import { basename, makeTab } from "./types";
 
@@ -177,14 +178,13 @@ export default function App() {
     const timer = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(timer);
   }, [toast]);
-  useEffect(() => writeStored("helmcode.mode", mode), [mode]);
-  useEffect(() => {
-    setPrefs((current) => current.startMode === mode ? current : { ...current, startMode: mode });
-  }, [mode]);
   useEffect(() => { if (mode === "ide") setIdeOpened(true); }, [mode]);
   useEffect(() => writeStored("helmcode.view", activeView), [activeView]);
   useEffect(() => writeStored("helmcode.sidebar.collapsed", sidebarCollapsed), [sidebarCollapsed]);
   useEffect(() => writeStored("helmcode.sidebar.width", sidebarWidth), [sidebarWidth]);
+  useEffect(() => {
+    setWindowTitle(workspace ? `${basename(workspace)} - ${APP_NAME}` : APP_NAME);
+  }, [workspace]);
   useEffect(() => subscribeTheme((_resolved, theme) => {
     setPrefs((current) => current.theme === theme ? current : { ...current, theme });
   }), []);
@@ -916,7 +916,15 @@ export default function App() {
         return;
       }
       if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
-      if (event.key.toLowerCase() === "h") {
+      const shortcut = event.key.toLowerCase();
+      if (shortcut === "a" || shortcut === "h") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!workspace || showProjects) { notify("Apri un progetto per cambiare modalità."); return; }
+        setMode(shortcut === "a" ? "ai" : "ide");
+        return;
+      }
+      if (shortcut === "r") {
         event.preventDefault();
         if (!workspace) { notify("Apri un progetto per usare le sezioni."); return; }
         showView("search");
@@ -924,7 +932,7 @@ export default function App() {
         return;
       }
       const views: Record<string, ActivityView> = { e: "explorer", f: "search", g: "git", b: "build" };
-      const view = views[event.key.toLowerCase()];
+      const view = views[shortcut];
       if (view) {
         event.preventDefault();
         if (!workspace) { notify("Apri un progetto per usare le sezioni."); return; }

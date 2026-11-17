@@ -56,6 +56,11 @@ export function showWindow(): Promise<void> {
   return getCurrentWindow().show();
 }
 
+export function setWindowTitle(title: string): void {
+  if (!isTauri()) return;
+  void getCurrentWindow().setTitle(title).catch(() => undefined);
+}
+
 export async function applyWindowSize(
   width: number,
   height: number,

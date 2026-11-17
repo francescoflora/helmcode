@@ -100,7 +100,8 @@ Puoi controllare manualmente dal menu Aggiornamenti o dalle impostazioni.
 - Evidenziazione della sintassi per i linguaggi del catalogo CodeMirror: HTML con CSS/JavaScript incorporati, JS/TS e React, CSS/SCSS, Python, Rust, JSON/JSONC, YAML, TOML, Markdown e altri. I parser vengono caricati quando apri un file; i formati non riconosciuti restano modificabili come testo semplice.
 - Ricaricamento automatico dei file modificati da processi esterni quando la scheda non contiene modifiche non salvate.
 - Sidebar ridimensionabile e pannello terminali sotto l'editor, apribile dall'icona Terminali nella barra sinistra.
-- Le scorciatoie `Ctrl+Shift+E/F/G/B` mostrano la sezione File, Cerca, Git o Build; premute di nuovo mentre la sezione è visibile la nascondono.
+- Le scorciatoie `Ctrl+Shift+E/F/G/B` mostrano la sezione File, Cerca, Git o Build; premute di nuovo mentre la sezione è visibile la nascondono. `Ctrl+Shift+R` apre la ricerca con il campo Sostituisci attivo.
+- `Ctrl+Shift+A` passa ad AGENT e `Ctrl+Shift+H` passa a HELM.
 - Terminali PowerShell indipendenti nella cartella di progetto: creazione senza un limite fisso di schede, selezione, rinomina, chiusura e riavvio delle sessioni terminate. Nascondere il pannello o passare ad AGENT conserva le sessioni; cambiare progetto le chiude.
 - `Ctrl+Shift+T` mostra o nasconde i terminali e, all'apertura, dà il focus alla sessione attiva. `Ctrl+Backquote` mostra o nasconde il pannello; `Ctrl+Shift+Backquote` crea un terminale nuovo. Il separatore superiore permette di ridimensionare il pannello con trascinamento o frecce su/giù.
 - Confronto del file attuale con la versione Git, accessibile anche dalla lista delle modifiche.
