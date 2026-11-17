@@ -2,6 +2,9 @@
 name = "helmcode"
 version = "0.1.0"
 description = "helmcode - uno spazio essenziale per sviluppare con AI"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/francescoflora/helmcode"
+authors = ["Francesco Flora"]
 edition = "2021"
 rust-version = "1.82"
 

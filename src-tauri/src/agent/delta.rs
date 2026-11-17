@@ -161,6 +161,7 @@ mod tests {
     fn rejects_traversal_and_absolute_paths() {
         let workspace = temp_workspace();
         assert!(resolve_workspace_path(&workspace, "../escape.txt").is_err());
+        #[cfg(windows)]
         assert!(resolve_workspace_path(&workspace, "C:/Windows/win.ini").is_err());
         fs::remove_dir_all(workspace).ok();
     }

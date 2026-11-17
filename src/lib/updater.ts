@@ -2,9 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { isTauri } from "./tauri";
 
-/** Attivare dopo aver aggiunto la chiave pubblica e i secret di firma. */
-export const UPDATER_READY = false;
-
 export type UpdateStatus =
   | "idle"
   | "checking"
@@ -15,8 +12,11 @@ export type UpdateStatus =
   | "error";
 
 export function canAutoUpdate(): boolean {
-  return isTauri() && import.meta.env.PROD && UPDATER_READY;
+  return isTauri() && import.meta.env.PROD;
 }
+
+/** Automatic checks run once per app session, like openfolio. */
+let autoChecked = false;
 
 export function useUpdater(autoCheck: boolean) {
   const [status, setStatus] = useState<UpdateStatus>("idle");
@@ -89,7 +89,8 @@ export function useUpdater(autoCheck: boolean) {
   }, []);
 
   useEffect(() => {
-    if (!autoCheck) return;
+    if (!autoCheck || autoChecked) return;
+    autoChecked = true;
     void check(true);
   }, [autoCheck, check]);
 

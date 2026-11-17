@@ -1,6 +1,5 @@
 import type { Prefs } from "../lib/prefs";
 import { AGENTS } from "../lib/agents";
-import { UPDATER_READY } from "../lib/updater";
 import { MonitorIcon, MoonIcon, SunIcon, XIcon } from "./Icons";
 
 type Props = {
@@ -99,11 +98,6 @@ export function SettingsModal({ prefs, onChange, onReset, onClose }: Props) {
             <input type="checkbox" checked={prefs.autoCheckUpdates} onChange={(event) => onChange({ autoCheckUpdates: event.target.checked })} />
             <span>Controlla automaticamente all'avvio</span>
           </label>
-          {!UPDATER_READY && (
-            <p className="mt-2 text-xs leading-relaxed text-[var(--secondary)]">
-              Gli aggiornamenti automatici non sono ancora disponibili. Puoi scaricare le nuove versioni dal menu Aggiornamenti.
-            </p>
-          )}
         </section>
 
         <div className="mt-5 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">

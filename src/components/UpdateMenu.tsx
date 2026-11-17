@@ -24,10 +24,11 @@ export function UpdateMenu({ autoCheck, hasUnsavedChanges, onSaveAll }: Props) {
   }, []);
 
   const startInstall = () => {
-    if (hasUnsavedChanges) {
-      setConfirming(true);
-      return;
-    }
+    setConfirming(true);
+  };
+
+  const proceed = () => {
+    setConfirming(false);
     setOpen(true);
     void install();
   };
@@ -35,13 +36,12 @@ export function UpdateMenu({ autoCheck, hasUnsavedChanges, onSaveAll }: Props) {
   const saveAndInstall = async () => {
     setSaving(true);
     try {
-      if (await onSaveAll()) {
-        setConfirming(false);
-        setOpen(true);
-        void install();
-      }
+      await onSaveAll();
+    } catch {
+      /* il salvataggio segnala l'errore altrove: l'aggiornamento prosegue comunque */
     } finally {
       setSaving(false);
+      proceed();
     }
   };
 
@@ -103,7 +103,9 @@ export function UpdateMenu({ autoCheck, hasUnsavedChanges, onSaveAll }: Props) {
               <div>
                 <h3 className="text-sm font-semibold text-[var(--text)]">Aggiorna helmcode</h3>
                 <p className="mt-1 text-[13px] leading-relaxed text-[var(--secondary)]">
-                  Ci sono modifiche non salvate. Salvale prima di installare l'aggiornamento.
+                  {hasUnsavedChanges
+                    ? "Ci sono modifiche non salvate. Salvale prima di installare l'aggiornamento."
+                    : "helmcode verrà chiuso e riavviato per completare l'aggiornamento."}
                 </p>
               </div>
               <button type="button" className="icon-button" title="Annulla" onClick={() => setConfirming(false)}>
@@ -111,9 +113,20 @@ export function UpdateMenu({ autoCheck, hasUnsavedChanges, onSaveAll }: Props) {
               </button>
             </div>
             <div className="mt-4 flex flex-col gap-2">
-              <button type="button" className="accent-button rounded-lg px-3 py-2 text-[13px] font-semibold disabled:opacity-50" disabled={saving} onClick={() => void saveAndInstall()}>
-                {saving ? "Salvataggio…" : "Salva e aggiorna"}
-              </button>
+              {hasUnsavedChanges ? (
+                <>
+                  <button type="button" className="accent-button rounded-lg px-3 py-2 text-[13px] font-semibold disabled:opacity-50" disabled={saving} onClick={() => void saveAndInstall()}>
+                    {saving ? "Salvataggio…" : "Salva e aggiorna"}
+                  </button>
+                  <button type="button" className="ghost-button rounded-lg px-3 py-2 text-[13px]" disabled={saving} onClick={proceed}>
+                    Procedi senza salvare
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="accent-button rounded-lg px-3 py-2 text-[13px] font-semibold" onClick={proceed}>
+                  Scarica e installa
+                </button>
+              )}
               <button type="button" className="ghost-button rounded-lg px-3 py-2 text-[13px]" disabled={saving} onClick={() => setConfirming(false)}>
                 Annulla
               </button>

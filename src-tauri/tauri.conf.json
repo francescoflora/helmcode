@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "helmcode",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "com.helmcode.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -35,12 +35,23 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_TAURI_SIGNING_PUBLIC_KEY"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCMEI2RjJEMjU5N0E1NDgKUldSSXBaY2xMVzhMSzZ2SGxNV0s4cU5rZjFCMnZSdzhvWDY1ekpXOFk1MzlDYlUwSWJiZExUbngK",
+      "endpoints": [
+        "https://github.com/francescoflora/helmcode/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "category": "DeveloperTool",
+    "shortDescription": "Spazio desktop per sviluppare con AI, codice e Git",
+    "longDescription": "helmcode unisce AI, codice e Git in un'unica interfaccia desktop: modalità AGENT, editor CodeMirror, terminale, diff e storico Git.",
+    "copyright": "GPL-3.0-or-later",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

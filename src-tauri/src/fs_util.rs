@@ -225,6 +225,7 @@ mod tests {
         let workspace = std::env::temp_dir().join(format!("helmcode-fs-{}", Uuid::new_v4()));
         fs::create_dir_all(&workspace).unwrap();
         assert!(resolve_workspace_path(&workspace, "../escape.txt").is_err());
+        #[cfg(windows)]
         assert!(resolve_workspace_path(&workspace, "C:/Windows/win.ini").is_err());
         assert!(resolve_workspace_path(&workspace, "ok/file.txt").is_ok());
         fs::remove_dir_all(workspace).ok();

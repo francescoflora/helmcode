@@ -421,6 +421,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn runs_a_short_powershell_command() {
         let result = run_command_blocking(
             Path::new("."),
@@ -451,6 +452,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn a_large_command_reports_truncation_and_preserves_stderr_diagnostics() {
         let result = run_command_blocking(Path::new("."),
             "[Console]::Out.Write('BEGIN'); [Console]::Out.Write(('x' * 1048576)); [Console]::Out.Write('END'); [Console]::Error.Write('STDERR diagnostic')",
