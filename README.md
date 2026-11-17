@@ -100,8 +100,9 @@ Puoi controllare manualmente dal menu Aggiornamenti o dalle impostazioni.
 - Evidenziazione della sintassi per i linguaggi del catalogo CodeMirror: HTML con CSS/JavaScript incorporati, JS/TS e React, CSS/SCSS, Python, Rust, JSON/JSONC, YAML, TOML, Markdown e altri. I parser vengono caricati quando apri un file; i formati non riconosciuti restano modificabili come testo semplice.
 - Ricaricamento automatico dei file modificati da processi esterni quando la scheda non contiene modifiche non salvate.
 - Sidebar ridimensionabile e pannello terminali sotto l'editor, apribile dall'icona Terminali nella barra sinistra.
+- Le scorciatoie `Ctrl+Shift+E/F/G/B` mostrano la sezione File, Cerca, Git o Build; premute di nuovo mentre la sezione è visibile la nascondono.
 - Terminali PowerShell indipendenti nella cartella di progetto: creazione senza un limite fisso di schede, selezione, rinomina, chiusura e riavvio delle sessioni terminate. Nascondere il pannello o passare ad AGENT conserva le sessioni; cambiare progetto le chiude.
-- `Ctrl+Shift+T` apre i terminali e dà il focus alla sessione attiva. `Ctrl+Backquote` mostra o nasconde il pannello; `Ctrl+Shift+Backquote` crea un terminale nuovo. Il separatore superiore permette di ridimensionare il pannello con trascinamento o frecce su/giù.
+- `Ctrl+Shift+T` mostra o nasconde i terminali e, all'apertura, dà il focus alla sessione attiva. `Ctrl+Backquote` mostra o nasconde il pannello; `Ctrl+Shift+Backquote` crea un terminale nuovo. Il separatore superiore permette di ridimensionare il pannello con trascinamento o frecce su/giù.
 - Confronto del file attuale con la versione Git, accessibile anche dalla lista delle modifiche.
 - Il selettore HELM e l'icona Git mostrano il numero di file modificati, includendo le modifiche non ancora salvate senza contare due volte lo stesso file.
 
@@ -172,10 +173,11 @@ Per Java: [Eclipse JDT Language Server](https://github.com/eclipse-jdtls/eclipse
 - Passaggio a un altro branch senza forzare o scartare le modifiche locali.
 - Elenco dei file staged, modificati e non tracciati.
 - Differenze del file rispetto a Git, incluse le modifiche presenti nell'editor.
-- Grafo SVG dei commit di tutti i branch e tag, con messaggio, hash breve, autore e data; la cronologia carica altri commit su richiesta.
+- Grafo SVG dei commit di tutti i branch e tag, con messaggio, hash breve, autore e data; la cronologia carica altri commit su richiesta. I riferimenti mostrano icone distinte per branch corrente, branch locale, branch remoto e tag, con il nome completo nel tooltip.
+- Tasto destro su un commit nel grafo per eseguire il cherry-pick sul branch corrente.
 - Dal menu della freccia del commit: `Esegui merge` (scelta ramo di partenza e destinazione), `Esegui merge da` (destinazione = branch corrente) e `Commit e push`. I rami di origine possono essere locali o remoti; la destinazione solo locale.
-- In caso di conflitti si apre un resolver: per ogni blocco si può accettare la versione corrente, quella in arrivo o entrambe, con azioni “tutte correnti/tutte in arrivo”; per i conflitti senza marcatori si sceglie direttamente la versione. Il merge si completa con “Completa merge” o si annulla con “Annulla merge”.
-- Nella barra di stato la doppia freccia esegue `git fetch --all --prune` nel repository corrente. L'asterisco accanto al branch e sulla sua icona segnala commit da inviare o ricevere rispetto all'upstream; il tooltip mostra i conteggi dopo l'ultimo fetch.
+- In caso di conflitti si apre un resolver: per ogni blocco si può accettare la versione corrente, quella in arrivo o entrambe, con azioni “tutte correnti/tutte in arrivo”; per i conflitti senza marcatori si sceglie direttamente la versione. L'operazione si completa con “Completa merge”/“Completa cherry-pick” o si annulla con il pulsante corrispondente.
+- Nella barra di stato la doppia freccia sincronizza il repository corrente: se ci sono commit sia da scaricare sia da inviare apre un menu con `Pull`, `Push` e `Pull e push`; se una sola direzione ha commit esegue automaticamente il pull o il push; senza commit in attesa esegue `git fetch --all --prune`. Il pull è reale (`fetch` + merge dell'upstream) e gli eventuali conflitti si risolvono dal pannello Git. L'asterisco accanto al branch e sulla sua icona segnala commit da inviare o ricevere rispetto all'upstream; il tooltip mostra i conteggi dopo l'ultimo fetch.
 - Il pulsante unico con errori e avvisi apre direttamente Problemi in HELM, anche dalla modalità AGENT o dalla scheda Output.
 
 I badge di HELM e della barra laterale Git contano i file da revisionare nel workspace. Il tooltip della doppia freccia riporta i commit in entrata e in uscita.

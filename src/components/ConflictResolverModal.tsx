@@ -13,6 +13,7 @@ type ConflictFile = {
 type Props = {
   workspace: string;
   conflicts: string[];
+  operation: "merge" | "cherry-pick";
   onClose: () => void;
   onResolved: (outcome: "completed" | "aborted") => void;
 };
@@ -20,7 +21,8 @@ type Props = {
 const choicesFor = (parsed: ParsedConflicts, choice: ConflictChoice) =>
   Object.fromEntries(parsed.segments.filter((segment) => segment.kind === "conflict").map((segment) => [segment.id, choice])) as Record<number, ConflictChoice>;
 
-export function ConflictResolverModal({ workspace, conflicts, onClose, onResolved }: Props) {
+export function ConflictResolverModal({ workspace, conflicts, operation, onClose, onResolved }: Props) {
+  const operationLabel = operation === "cherry-pick" ? "cherry-pick" : "merge";
   const [files, setFiles] = useState<ConflictFile[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -118,7 +120,7 @@ export function ConflictResolverModal({ workspace, conflicts, onClose, onResolve
       const current = await saveResolved();
       const pending = current.filter((item) => item.parsed ? remainingFor(item) > 0 : !item.saved);
       if (pending.length) {
-        setError(`Risolvi ancora ${pending.length} file prima di completare il merge.`);
+        setError(`Risolvi ancora ${pending.length} file prima di completare il ${operationLabel}.`);
         return;
       }
       await api.gitCompleteMerge(workspace);
@@ -131,7 +133,7 @@ export function ConflictResolverModal({ workspace, conflicts, onClose, onResolve
   };
 
   const abort = async () => {
-    if (!window.confirm("Annullare il merge e ripristinare lo stato precedente?")) return;
+    if (!window.confirm(`Annullare il ${operationLabel} e ripristinare lo stato precedente?`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -231,10 +233,10 @@ export function ConflictResolverModal({ workspace, conflicts, onClose, onResolve
         {error && <p className="modal-error">{error}</p>}
 
         <div className="conflict-footer">
-          <button type="button" className="text-[13px] text-[var(--danger)] hover:text-[var(--danger)]" onClick={() => void abort()} disabled={busy}>Annulla merge</button>
+          <button type="button" className="text-[13px] text-[var(--danger)] hover:text-[var(--danger)]" onClick={() => void abort()} disabled={busy}>Annulla {operationLabel}</button>
           <button type="button" className="ghost-button rounded-md px-3 py-1.5 text-[13px] ml-auto" onClick={onClose} disabled={busy}>Chiudi</button>
           <button type="button" className="ghost-button rounded-md px-3 py-1.5 text-[13px]" onClick={() => void save()} disabled={busy || loading}>Salva risolti</button>
-          <button type="button" className="accent-button rounded-md px-3.5 py-1.5 text-[13px] font-semibold disabled:opacity-50" onClick={() => void complete()} disabled={busy || loading || unresolvedFiles.length > 0}>Completa merge</button>
+          <button type="button" className="accent-button rounded-md px-3.5 py-1.5 text-[13px] font-semibold disabled:opacity-50" onClick={() => void complete()} disabled={busy || loading || unresolvedFiles.length > 0}>Completa {operationLabel}</button>
         </div>
       </div>
     </div>

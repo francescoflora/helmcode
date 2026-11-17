@@ -34,6 +34,7 @@ pub struct GitStatus {
     pub ahead: usize,
     pub behind: usize,
     pub merging: bool,
+    pub cherry_picking: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,6 +68,7 @@ pub struct GitCommit {
 pub struct GitLog {
     pub commits: Vec<GitCommit>,
     pub truncated: bool,
+    pub remotes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,7 +136,7 @@ pub fn log(workspace: &Path, limit: usize) -> Result<GitLog> {
             .map(|raw| !raw.is_empty())
             .unwrap_or(false);
     if !has_history {
-        return Ok(GitLog { commits: Vec::new(), truncated: false });
+        return Ok(GitLog { commits: Vec::new(), truncated: false, remotes: Vec::new() });
     }
     let count = format!("--max-count={}", limit + 1);
     let raw = run(workspace, &[
@@ -142,6 +144,9 @@ pub fn log(workspace: &Path, limit: usize) -> Result<GitLog> {
         "--pretty=format:%x1f%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%s",
     ])?;
     let mut history = parse_log(&raw, limit);
+    history.remotes = run(workspace, &["remote"])
+        .map(|raw| String::from_utf8_lossy(&raw).lines().map(str::trim).filter(|remote| !remote.is_empty()).map(str::to_owned).collect())
+        .unwrap_or_default();
     let unpushed = unpushed_hashes(workspace);
     for commit in &mut history.commits {
         commit.unpushed = unpushed.contains(&commit.hash);
@@ -196,7 +201,7 @@ fn parse_log(raw: &[u8], limit: usize) -> GitLog {
             unpushed: false,
         });
     }
-    GitLog { commits, truncated }
+    GitLog { commits, truncated, remotes: Vec::new() }
 }
 
 fn remote_local_name(workspace: &Path, remote_branch: &str) -> Result<String> {
@@ -329,16 +334,46 @@ pub fn merge(workspace: &Path, source: &str, target: &str) -> Result<MergeOutcom
 
 pub fn complete_merge(workspace: &Path) -> Result<GitStatus> {
     if !unmerged_paths(workspace).is_empty() {
-        bail!("Restano conflitti da risolvere prima di completare il merge");
+        bail!("Restano conflitti da risolvere prima di completare l'operazione");
     }
-    run(workspace, &["rev-parse", "--verify", "MERGE_HEAD"]).context("Nessun merge in corso")?;
-    run(workspace, &["commit", "--no-edit"])?;
+    if run(workspace, &["rev-parse", "--verify", "CHERRY_PICK_HEAD"]).is_ok() {
+        run(workspace, &["-c", "core.editor=true", "cherry-pick", "--continue"])
+            .context("Impossibile completare il cherry-pick")?;
+    } else if run(workspace, &["rev-parse", "--verify", "MERGE_HEAD"]).is_ok() {
+        run(workspace, &["commit", "--no-edit"])?;
+    } else {
+        bail!("Nessuna operazione Git in corso");
+    }
     Ok(status(workspace))
 }
 
 pub fn abort_merge(workspace: &Path) -> Result<GitStatus> {
-    run(workspace, &["merge", "--abort"]).context("Nessun merge in corso")?;
+    if run(workspace, &["rev-parse", "--verify", "CHERRY_PICK_HEAD"]).is_ok() {
+        run(workspace, &["cherry-pick", "--abort"]).context("Nessun cherry-pick in corso")?;
+    } else if run(workspace, &["rev-parse", "--verify", "MERGE_HEAD"]).is_ok() {
+        run(workspace, &["merge", "--abort"]).context("Nessun merge in corso")?;
+    } else {
+        bail!("Nessuna operazione Git in corso");
+    }
     Ok(status(workspace))
+}
+
+pub fn cherry_pick(workspace: &Path, hash: &str) -> Result<MergeOutcome> {
+    let hash = hash.trim();
+    if hash.is_empty() || !hash.chars().all(|character| character.is_ascii_hexdigit()) {
+        bail!("Hash commit non valido");
+    }
+    match run(workspace, &["cherry-pick", hash]) {
+        Ok(_) => Ok(MergeOutcome { status: status(workspace), conflicts: Vec::new() }),
+        Err(error) => {
+            let conflicts = unmerged_paths(workspace);
+            if conflicts.is_empty() {
+                Err(error)
+            } else {
+                Ok(MergeOutcome { status: status(workspace), conflicts })
+            }
+        }
+    }
 }
 
 pub fn resolve_conflict(workspace: &Path, path: &str, content: &str) -> Result<()> {
@@ -367,6 +402,28 @@ pub fn take_side(workspace: &Path, path: &str, side: &str) -> Result<()> {
     Ok(())
 }
 
+fn push_current_branch(workspace: &Path) -> Result<()> {
+    let branch = String::from_utf8_lossy(&run(workspace, &["symbolic-ref", "--short", "-q", "HEAD"])?)
+        .trim()
+        .to_string();
+    if branch.is_empty() || branch.starts_with('-') {
+        bail!("Il branch corrente non è valido per il push");
+    }
+    let has_upstream = run(workspace, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).is_ok();
+    let pushed = if has_upstream {
+        run(workspace, &["push"])
+    } else {
+        let remotes = run(workspace, &["remote"])?;
+        let remotes: Vec<String> = String::from_utf8_lossy(&remotes).lines().map(str::trim).filter(|remote| !remote.is_empty()).map(str::to_owned).collect();
+        let Some(remote) = remotes.iter().find(|remote| remote.as_str() == "origin").or_else(|| remotes.first()) else {
+            bail!("Nessun remote è configurato per il push");
+        };
+        run(workspace, &["push", "--set-upstream", remote, &branch])
+    };
+    pushed?;
+    Ok(())
+}
+
 pub fn commit(workspace: &Path, message: &str, push: bool) -> Result<GitStatus> {
     let message = message.trim();
     if message.is_empty() {
@@ -379,28 +436,37 @@ pub fn commit(workspace: &Path, message: &str, push: bool) -> Result<GitStatus> 
     run(workspace, &["add", "-A", "--", "."])?;
     run(workspace, &["commit", "-m", message])?;
     if push {
-        let branch = String::from_utf8_lossy(&run(workspace, &["symbolic-ref", "--short", "-q", "HEAD"])?)
-            .trim()
-            .to_string();
-        if branch.is_empty() || branch.starts_with('-') {
-            bail!("Commit creato in locale, ma il branch corrente non è valido per il push");
-        }
-        let has_upstream = run(workspace, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).is_ok();
-        let pushed = if has_upstream {
-            run(workspace, &["push"])
-        } else {
-            let remotes = run(workspace, &["remote"])?;
-            let remotes: Vec<String> = String::from_utf8_lossy(&remotes).lines().map(str::trim).filter(|remote| !remote.is_empty()).map(str::to_owned).collect();
-            let Some(remote) = remotes.iter().find(|remote| remote.as_str() == "origin").or_else(|| remotes.first()) else {
-                bail!("Commit creato in locale, ma nessun remote è configurato per il push");
-            };
-            run(workspace, &["push", "--set-upstream", remote, &branch])
-        };
-        if let Err(error) = pushed {
-            bail!("Commit creato in locale, ma il push è fallito: {error}");
+        if let Err(error) = push_current_branch(workspace) {
+            bail!("Commit creato in locale, ma il push è fallito: {error:#}");
         }
     }
     Ok(status(workspace))
+}
+
+pub fn push(workspace: &Path) -> Result<GitStatus> {
+    push_current_branch(workspace)?;
+    Ok(status(workspace))
+}
+
+pub fn pull(workspace: &Path) -> Result<MergeOutcome> {
+    run(workspace, &["fetch", "--all", "--prune"])?;
+    run(workspace, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+        .context("Nessun branch remoto associato per il pull")?;
+    let current = status(workspace);
+    if current.behind == 0 {
+        return Ok(MergeOutcome { status: current, conflicts: Vec::new() });
+    }
+    match run(workspace, &["merge", "--no-edit", "@{upstream}"]) {
+        Ok(_) => Ok(MergeOutcome { status: status(workspace), conflicts: Vec::new() }),
+        Err(error) => {
+            let conflicts = unmerged_paths(workspace);
+            if conflicts.is_empty() {
+                Err(error)
+            } else {
+                Ok(MergeOutcome { status: status(workspace), conflicts })
+            }
+        }
+    }
 }
 
 pub fn file_diff(workspace: &Path, path: &str, content: Option<String>) -> Result<FileDiff> {
@@ -584,6 +650,24 @@ pub async fn git_commit(state: State<'_, AppState>, expected_workspace: String, 
 }
 
 #[tauri::command]
+pub async fn git_push(state: State<'_, AppState>, expected_workspace: String) -> Result<GitStatus, String> {
+    let root = checked_workspace(&state, &expected_workspace)?;
+    tauri::async_runtime::spawn_blocking(move || push(&root)).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn git_pull(state: State<'_, AppState>, expected_workspace: String) -> Result<MergeOutcome, String> {
+    let root = checked_workspace(&state, &expected_workspace)?;
+    tauri::async_runtime::spawn_blocking(move || pull(&root)).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn git_cherry_pick(state: State<'_, AppState>, expected_workspace: String, hash: String) -> Result<MergeOutcome, String> {
+    let root = checked_workspace(&state, &expected_workspace)?;
+    tauri::async_runtime::spawn_blocking(move || cherry_pick(&root, &hash)).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn git_revert_file(state: State<'_, AppState>, expected_workspace: String, path: String) -> Result<(), String> {
     let root = checked_workspace(&state, &expected_workspace)?;
     tauri::async_runtime::spawn_blocking(move || revert_file(&root, &path)).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
@@ -658,19 +742,22 @@ pub fn status(workspace: &Path) -> GitStatus {
                 ahead: 0,
                 behind: 0,
                 merging: false,
+                cherry_picking: false,
             };
         }
     };
     // One status command provides branch, upstream, divergence and changes.
-    // Resolve the workspace prefix and per-worktree MERGE_HEAD together.
-    let context = run(workspace, &["rev-parse", "--show-prefix", "--git-path", "MERGE_HEAD"])
+    // Resolve the workspace prefix and per-worktree operation markers together.
+    let context = run(workspace, &["rev-parse", "--show-prefix", "--git-path", "MERGE_HEAD", "--git-path", "CHERRY_PICK_HEAD"])
         .unwrap_or_default();
     let context = String::from_utf8_lossy(&context);
-    let (prefix, merge_path) = context.split_once('\n').unwrap_or(("", ""));
-    let prefix = prefix.trim_end_matches('\r');
-    let merge_path = merge_path.trim_end_matches(['\r', '\n']);
+    let mut lines = context.lines();
+    let prefix = lines.next().unwrap_or_default().trim_end_matches('\r');
+    let merge_path = lines.next().unwrap_or_default().trim_end_matches(['\r', '\n']);
+    let cherry_pick_path = lines.next().unwrap_or_default().trim_end_matches(['\r', '\n']);
     let mut result = parse_status_v2_z(&raw, prefix);
     result.merging = !merge_path.is_empty() && workspace.join(merge_path).is_file();
+    result.cherry_picking = !cherry_pick_path.is_empty() && workspace.join(cherry_pick_path).is_file();
     result
 }
 
@@ -729,6 +816,7 @@ fn parse_status_v2_z(input: &[u8], workspace_prefix: &str) -> GitStatus {
         ahead,
         behind,
         merging: false,
+        cherry_picking: false,
     }
 }
 
@@ -811,7 +899,7 @@ fn run(workspace: &Path, args: &[&str]) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{abort_merge, branches, build_diff, checkout, commit, commit_file_diff, commit_files, complete_merge, create_branch, file_diff, log, merge, parse_log, parse_status_v2_z, parse_status_z, resolve_conflict, revert_file, run, status, take_side};
+    use super::{abort_merge, branches, build_diff, checkout, cherry_pick, commit, commit_file_diff, commit_files, complete_merge, create_branch, file_diff, log, merge, parse_log, parse_status_v2_z, parse_status_z, pull, push, resolve_conflict, revert_file, run, status, take_side};
     use std::fs;
     use std::path::PathBuf;
 
@@ -893,6 +981,47 @@ mod tests {
         assert!(log(&local.0, 10).unwrap().commits.iter().all(|commit| !commit.unpushed));
         let remote_head = String::from_utf8(run(&remote.0, &["log", "-1", "--format=%s", "main"]).unwrap()).unwrap();
         assert_eq!(remote_head.trim(), "push change");
+    }
+
+    #[test]
+    fn push_and_pull_follow_upstream() {
+        let remote = Repository::new();
+        fs::write(remote.0.join("base.txt"), "initial").unwrap();
+        run(&remote.0, &["add", "."]).unwrap();
+        run(&remote.0, &["commit", "-m", "initial"]).unwrap();
+        run(&remote.0, &["config", "receive.denyCurrentBranch", "ignore"]).unwrap();
+        let local = Repository::new();
+        run(&local.0, &["remote", "add", "origin", remote.0.to_str().unwrap()]).unwrap();
+        run(&local.0, &["fetch", "--all", "--prune"]).unwrap();
+        run(&local.0, &["checkout", "-B", "main", "origin/main"]).unwrap();
+
+        fs::write(local.0.join("pushed.txt"), "pushed").unwrap();
+        run(&local.0, &["add", "."]).unwrap();
+        run(&local.0, &["commit", "-m", "to push"]).unwrap();
+        assert_eq!(status(&local.0).ahead, 1);
+        let pushed = push(&local.0).unwrap();
+        assert_eq!(pushed.ahead, 0);
+        let remote_head = String::from_utf8(run(&remote.0, &["log", "-1", "--format=%s", "main"]).unwrap()).unwrap();
+        assert_eq!(remote_head.trim(), "to push");
+
+        fs::write(remote.0.join("remote.txt"), "remote").unwrap();
+        run(&remote.0, &["add", "."]).unwrap();
+        run(&remote.0, &["commit", "-m", "from remote"]).unwrap();
+        let fast_forward = pull(&local.0).unwrap();
+        assert!(fast_forward.conflicts.is_empty());
+        assert_eq!((fast_forward.status.ahead, fast_forward.status.behind), (0, 0));
+        assert_eq!(fs::read_to_string(local.0.join("remote.txt")).unwrap(), "remote");
+
+        fs::write(local.0.join("base.txt"), "local edit").unwrap();
+        run(&local.0, &["add", "."]).unwrap();
+        run(&local.0, &["commit", "-m", "local edit"]).unwrap();
+        fs::write(remote.0.join("base.txt"), "remote edit").unwrap();
+        run(&remote.0, &["add", "."]).unwrap();
+        run(&remote.0, &["commit", "-m", "remote edit"]).unwrap();
+        let divergent = pull(&local.0).unwrap();
+        assert_eq!(divergent.conflicts, vec!["base.txt".to_string()]);
+        assert!(divergent.status.merging);
+        abort_merge(&local.0).unwrap();
     }
 
     #[test]
@@ -1128,6 +1257,44 @@ mod tests {
         abort_merge(&repo.0).unwrap();
         assert!(status(&repo.0).changes.is_empty());
         assert_eq!(fs::read_to_string(repo.0.join("file.txt")).unwrap().trim(), "main");
+    }
+
+    #[test]
+    fn cherry_pick_applies_and_reports_conflicts() {
+        let repo = Repository::new();
+        fs::write(repo.0.join("base.txt"), "base\n").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+        run(&repo.0, &["commit", "-m", "initial"]).unwrap();
+        run(&repo.0, &["switch", "-c", "feature"]).unwrap();
+        fs::write(repo.0.join("feature.txt"), "feature\n").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+        run(&repo.0, &["commit", "-m", "feature"]).unwrap();
+        let feature = String::from_utf8(run(&repo.0, &["rev-parse", "feature"]).unwrap()).unwrap().trim().to_string();
+        run(&repo.0, &["switch", "main"]).unwrap();
+
+        let applied = cherry_pick(&repo.0, &feature).unwrap();
+        assert!(applied.conflicts.is_empty());
+        assert_eq!(fs::read_to_string(repo.0.join("feature.txt")).unwrap().trim(), "feature");
+        assert_eq!(String::from_utf8(run(&repo.0, &["log", "-1", "--format=%s"]).unwrap()).unwrap().trim(), "feature");
+
+        let conflicting = conflicting_repository();
+        let feature = String::from_utf8(run(&conflicting.0, &["rev-parse", "feature"]).unwrap()).unwrap().trim().to_string();
+        let outcome = cherry_pick(&conflicting.0, &feature).unwrap();
+        assert_eq!(outcome.conflicts, vec!["file.txt".to_string()]);
+        assert!(outcome.status.cherry_picking);
+        assert!(complete_merge(&conflicting.0).is_err());
+
+        resolve_conflict(&conflicting.0, "file.txt", "resolved\n").unwrap();
+        let completed = complete_merge(&conflicting.0).unwrap();
+        assert!(!completed.cherry_picking);
+        assert_eq!(fs::read_to_string(conflicting.0.join("file.txt")).unwrap().trim(), "resolved");
+
+        let aborted = conflicting_repository();
+        let feature = String::from_utf8(run(&aborted.0, &["rev-parse", "feature"]).unwrap()).unwrap().trim().to_string();
+        assert_eq!(cherry_pick(&aborted.0, &feature).unwrap().conflicts.len(), 1);
+        abort_merge(&aborted.0).unwrap();
+        assert!(!status(&aborted.0).cherry_picking);
+        assert_eq!(fs::read_to_string(aborted.0.join("file.txt")).unwrap().trim(), "main");
     }
 
     #[test]

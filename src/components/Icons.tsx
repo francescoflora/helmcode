@@ -215,6 +215,25 @@ export function GitBranchIcon({ className }: IconProps) {
   );
 }
 
+export function TargetIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function TagIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3.4 13.4A2 2 0 0 1 3 12V5a2 2 0 0 1 2-2h7c.5 0 1 .2 1.4.6l7.2 7.2a2 2 0 0 1 0 2.6Z" />
+      <circle cx="7.5" cy="7.5" r="1.25" />
+    </svg>
+  );
+}
+
 export function MergeIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">

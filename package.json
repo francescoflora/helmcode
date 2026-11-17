@@ -1,7 +1,7 @@
 {
   "name": "helmcode",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Editor desktop per Windows che unisce AI, codice e Git in un'unica interfaccia.",
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -22,7 +22,7 @@
     "version": "node scripts/sync-version.mjs",
     "build:app": "tauri build --bundles nsis",
     "tauri:build": "tauri build --bundles nsis",
-    "tauri:windows:build": "tauri-windows-bundle build --runner npm"
+    "tauri:windows:build": "tauri-windows-bundle build --runner npm --regenerate-assets"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",
