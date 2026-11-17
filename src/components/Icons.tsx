@@ -376,6 +376,15 @@ export function ArrowLeftIcon({ className }: IconProps) {
   );
 }
 
+export function ArrowRightIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </svg>
+  );
+}
+
 export function DownloadIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">
@@ -409,6 +418,16 @@ export function DiscardIcon({ className }: IconProps) {
     <svg {...base} className={className} aria-hidden="true">
       <path d="M3 7v6h6" />
       <path d="M3.5 13a9 9 0 1 0 2.4-9.3L3 7" />
+    </svg>
+  );
+}
+
+export function SaveIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M5 4h11l3 3v13H5z" />
+      <path d="M8 4v5h7V4" />
+      <path d="M8 20v-6h8v6" />
     </svg>
   );
 }
