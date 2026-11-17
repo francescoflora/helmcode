@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { APP_AUTHOR, APP_NAME, getAppVersion } from "../lib/appinfo";
+import { APP_AUTHOR, APP_NAME, APP_VERSION_FALLBACK, getAppVersion } from "../lib/appinfo";
 import { BrandMark } from "./BrandMark";
 
 type Props = {
@@ -8,7 +8,7 @@ type Props = {
 };
 
 export function SplashScreen({ isReady, onFinish }: Props) {
-  const [version, setVersion] = useState("0.1.0");
+  const [version, setVersion] = useState(APP_VERSION_FALLBACK);
   const mountedAt = useRef(Date.now());
   const finished = useRef(false);
 

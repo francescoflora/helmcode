@@ -52,7 +52,7 @@ npm run build:app
 Output:
 
 - `src-tauri/target/release/helmcode.exe`: eseguibile standalone con frontend incorporato
-- `src-tauri/target/release/bundle/nsis/helmcode_0.1.0_x64-setup.exe`: installer Windows
+- `src-tauri/target/release/bundle/nsis/helmcode_<versione>_x64-setup.exe`: installer Windows
 
 Al primo avvio scegli o crea un progetto dalla schermata iniziale.
 
@@ -66,11 +66,15 @@ npm version minor --no-git-tag-version
 npm version major --no-git-tag-version
 ```
 
-`--no-git-tag-version` aggiorna `package.json` e `package-lock.json` senza creare commit o tag. Lo script `version` esegue `scripts/sync-version.mjs`, che allinea `src-tauri/Cargo.toml`. Per aggiornare anche `src-tauri/Cargo.lock`:
+`--no-git-tag-version` aggiorna `package.json` e `package-lock.json` senza creare commit o tag. Lo script `version` esegue `scripts/sync-version.mjs`, che allinea automaticamente `src-tauri/Cargo.toml` e la voce della crate in `src-tauri/Cargo.lock`.
+
+Per verificare che i file siano allineati senza modificarli:
 
 ```powershell
-cargo update -p helmcode --precise 0.1.1
+npm run check-version
 ```
+
+La CI esegue lo stesso controllo e fallisce se le versioni divergono.
 
 ## Aggiornamenti automatici
 
