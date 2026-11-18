@@ -8,6 +8,7 @@ export interface Prefs {
   showSplash: boolean;
   autoOpenLast: boolean;
   autoCheckUpdates: boolean;
+  confirmClose: boolean;
   startMode: WorkspaceMode;
   agent: AgentId;
 }
@@ -17,6 +18,7 @@ export const DEFAULT_PREFS: Prefs = {
   showSplash: true,
   autoOpenLast: false,
   autoCheckUpdates: true,
+  confirmClose: true,
   startMode: "ai",
   agent: "opencode",
 };
@@ -26,6 +28,7 @@ const KEYS = {
   showSplash: "helmcode.start.splash",
   autoOpenLast: "helmcode.start.autoOpen",
   autoCheckUpdates: "helmcode.updates.auto",
+  confirmClose: "helmcode.close.confirm",
   startMode: "helmcode.mode",
   agent: "helmcode.agent",
 } as const;
@@ -39,6 +42,7 @@ export function loadPrefs(): Prefs {
     showSplash: readStored<boolean>(KEYS.showSplash, DEFAULT_PREFS.showSplash),
     autoOpenLast: readStored<boolean>(KEYS.autoOpenLast, DEFAULT_PREFS.autoOpenLast),
     autoCheckUpdates: readStored<boolean>(KEYS.autoCheckUpdates, DEFAULT_PREFS.autoCheckUpdates),
+    confirmClose: readStored<boolean>(KEYS.confirmClose, DEFAULT_PREFS.confirmClose),
     startMode: readStored<string>(KEYS.startMode, DEFAULT_PREFS.startMode) === "ide" ? "ide" : "ai",
     agent: isAgentId(agent) ? agent : DEFAULT_PREFS.agent,
   };

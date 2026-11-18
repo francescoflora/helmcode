@@ -4,6 +4,7 @@ import { AgentLoading } from "./components/AgentLoading";
 import { AboutModal } from "./components/AboutModal";
 import { BranchPicker } from "./components/BranchPicker";
 import { BuildPanel as BuildPanelComponent } from "./components/BuildPanel";
+import { CloseConfirmModal } from "./components/CloseConfirmModal";
 import { FileExplorer as FileExplorerComponent } from "./components/FileExplorer";
 import { FileTypeIcon } from "./components/FileTypeIcon";
 import { GitPanel as GitPanelComponent } from "./components/GitPanel";
@@ -32,7 +33,7 @@ import { applyMutationToTabs, movedPath, pathContains } from "./lib/fileOperatio
 import { useSyncedScroll } from "./lib/syncScroll";
 import { createCoalescedRequest } from "./lib/coalescedRequest";
 import { applyDiskRefresh, sameGitStatus } from "./lib/workspaceRefresh";
-import { buildChangeMap, CHANGE_LABELS } from "./lib/gitStatus";
+import { buildChangeMap, CHANGE_LABELS, gitNeedsAttention } from "./lib/gitStatus";
 import { applyAppWindowSize, applyStartWindowSize, closeWindow, onCloseRequested, setWindowTitle, showWindow, useWindowMaximized, useWorkspaceWindowSize } from "./lib/window";
 import { APP_NAME } from "./lib/appinfo";
 import type { ActivityView, FileOperation, GitStatus, LspDiagnostic, ReplaceRequest, ReplaceResult, RevealRequest, Tab, TerminalTab, WorkspaceMode, WorkspaceMutation } from "./types";
@@ -71,6 +72,8 @@ export default function App() {
   const windowScreen = useRef<"projects" | "workspace">("projects");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const closeConfirmedRef = useRef(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
   const initialPrefs = useRef(prefs);
@@ -90,6 +93,9 @@ export default function App() {
   const [tasksVersion, setTasksVersion] = useState(0);
   const [git, setGit] = useState<GitStatus>(EMPTY_GIT);
   const [fetchingGit, setFetchingGit] = useState(false);
+  const [gitStatusBusy, setGitStatusBusy] = useState(false);
+  const [gitHistoryBusy, setGitHistoryBusy] = useState(false);
+  const [gitHistoryVersion, setGitHistoryVersion] = useState(0);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [problemsRequest, setProblemsRequest] = useState(0);
   const [showDiff, setShowDiff] = useState(false);
@@ -134,11 +140,20 @@ export default function App() {
   const explorerRevealNonce = useRef(0);
   const gitRequest = useRef(0);
   const gitRefresh = useRef<ReturnType<typeof createCoalescedRequest> | null>(null);
+  const historyVisibleRef = useRef(false);
   const fileRefreshes = useRef(new Map<string, ReturnType<typeof createCoalescedRequest>>());
   const autosaveTimers = useRef(new Map<string, number>());
   const activeTab = tabs.find((tab) => tab.path === activePath) ?? null;
   const comparedPath = activeTab?.external ? null : activePath ?? diffPath;
   const historyVisible = showHistory && git.isRepo;
+  historyVisibleRef.current = historyVisible;
+  const gitBusy = fetchingGit || gitStatusBusy || gitHistoryBusy;
+  const refreshGitHistory = useCallback(() => {
+    if (!historyVisibleRef.current) return;
+    setGitHistoryBusy(true);
+    setGitHistoryVersion((version) => version + 1);
+  }, []);
+  const handleGitHistoryBusy = useCallback((busy: boolean) => setGitHistoryBusy(busy), []);
   useSyncedScroll(editorScroller, diffScroller, Boolean(showDiff && comparedPath));
   const combinedDiagnostics = useMemo(() => {
     const combined = { ...diagnostics };
@@ -189,14 +204,11 @@ export default function App() {
   useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;
-    let closeConfirmed = false;
     let unlisten: (() => void) | undefined;
     void onCloseRequested((event) => {
-      if (closeConfirmed || !agentAliveRef.current) return;
+      if (closeConfirmedRef.current || !prefs.confirmClose) return;
       event.preventDefault();
-      if (!confirmAgentStop("Chiudere helmcode?")) return;
-      closeConfirmed = true;
-      void closeWindow();
+      setCloseConfirmOpen(true);
     }).then((cleanup) => {
       if (disposed) cleanup();
       else unlisten = cleanup;
@@ -205,7 +217,13 @@ export default function App() {
       disposed = true;
       unlisten?.();
     };
-  }, [confirmAgentStop]);
+  }, [prefs.confirmClose]);
+  const confirmClose = useCallback(() => {
+    closeConfirmedRef.current = true;
+    setCloseConfirmOpen(false);
+    void closeWindow().catch(() => { closeConfirmedRef.current = false; });
+  }, []);
+  const cancelClose = useCallback(() => setCloseConfirmOpen(false), []);
   useEffect(() => { if (mode === "ide") setIdeOpened(true); }, [mode]);
   useEffect(() => writeStored("helmcode.view", activeView), [activeView]);
   useEffect(() => writeStored("helmcode.sidebar.collapsed", sidebarCollapsed), [sidebarCollapsed]);
@@ -284,21 +302,34 @@ export default function App() {
     if (!workspace) return;
     let requested = 0;
     let fetchPending = true;
+    let historyPending = true;
     const queue = createCoalescedRequest(async () => {
       requested = ++gitRequest.current;
-      if (fetchPending) {
-        fetchPending = false;
-        try {
-          return { request: requested, status: await api.gitFetch(workspace), fetched: true };
-        } catch {
-          /* offline o nessun remote: mostra comunque lo stato locale */
+      setGitStatusBusy(true);
+      try {
+        if (historyPending) {
+          historyPending = false;
+          refreshGitHistory();
         }
+        if (fetchPending) {
+          fetchPending = false;
+          try {
+            return { request: requested, status: await api.gitFetch(workspace), fetched: true };
+          } catch {
+            /* offline o nessun remote: mostra comunque lo stato locale */
+          }
+        }
+        return { request: requested, status: await api.gitStatus(), fetched: false };
+      } finally {
+        setGitStatusBusy(false);
       }
-      return { request: requested, status: await api.gitStatus(), fetched: false };
     }, ({ request, status, fetched }) => {
       if (request !== gitRequest.current) return;
       setGit((current) => sameGitStatus(current, status) ? current : status);
-      if (fetched) setGitVersion((version) => version + 1);
+      if (fetched) {
+        refreshGitHistory();
+        setGitVersion((version) => version + 1);
+      }
     }, () => {
       if (requested === gitRequest.current) setGit(EMPTY_GIT);
     });
@@ -313,17 +344,17 @@ export default function App() {
     document.addEventListener("visibilitychange", refresh);
     return () => {
       queue.dispose();
+      setGitStatusBusy(false);
       if (gitRefresh.current === queue) gitRefresh.current = null;
       window.clearInterval(interval);
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [workspace, workspaceOpenNonce]);
+  }, [workspace, workspaceOpenNonce, refreshGitHistory]);
 
   useEffect(() => {
-    if (!workspace) return;
-    const timer = window.setTimeout(() => { if (!document.hidden) gitRefresh.current?.request(); }, 180);
-    return () => window.clearTimeout(timer);
+    if (!workspace || document.hidden) return;
+    gitRefresh.current?.request();
   }, [workspace, gitVersion]);
 
   useEffect(() => () => {
@@ -658,6 +689,7 @@ export default function App() {
     if (patch.showSplash !== undefined) savePref("showSplash", patch.showSplash);
     if (patch.autoOpenLast !== undefined) savePref("autoOpenLast", patch.autoOpenLast);
     if (patch.autoCheckUpdates !== undefined) savePref("autoCheckUpdates", patch.autoCheckUpdates);
+    if (patch.confirmClose !== undefined) savePref("confirmClose", patch.confirmClose);
     if (patch.startMode !== undefined) {
       savePref("startMode", patch.startMode);
       setMode(patch.startMode);
@@ -713,6 +745,7 @@ export default function App() {
     setSyncMenuOpen(false);
     const requestedWorkspace = workspace;
     setFetchingGit(true);
+    refreshGitHistory();
     ++gitRequest.current;
     try {
       if ((action === "pull" || action === "both") && !(await saveBeforeBuild())) return;
@@ -721,6 +754,7 @@ export default function App() {
         if (workspaceRef.current !== requestedWorkspace) return;
         ++gitRequest.current;
         setGit(status);
+        refreshGitHistory();
         setGitVersion((version) => version + 1);
         return;
       }
@@ -729,6 +763,7 @@ export default function App() {
         if (workspaceRef.current !== requestedWorkspace) return;
         ++gitRequest.current;
         setGit(outcome.status);
+        refreshGitHistory();
         setGitVersion((version) => version + 1);
         if (outcome.conflicts.length > 0) {
           notify("Pull completato con conflitti: risolvili dal pannello Git.");
@@ -740,6 +775,7 @@ export default function App() {
         if (workspaceRef.current !== requestedWorkspace) return;
         ++gitRequest.current;
         setGit(status);
+        refreshGitHistory();
         setGitVersion((version) => version + 1);
       }
     } catch (error) {
@@ -1105,7 +1141,7 @@ export default function App() {
                     <div className="editor-fill">{ideOpened && <Suspense fallback={<div className="panel-empty">Apertura editor…</div>}><EditorPane workspace={workspace} locked={mutatingFiles} tab={activeTab} diagnostics={activeDiagnostics} reveal={reveal} onChange={handleChange} onSave={(path) => void saveTab(path)} onNavigate={openSymbol} onScroller={setEditorScroller} /></Suspense>}</div>
                   </div>
                   {showDiff && comparedPath && <section className="diff-document" aria-label="Differenze del file rispetto a Git"><GitDiff workspace={workspace} path={comparedPath} content={activeTab?.content} version={gitVersion} onScroller={setDiffScroller} /></section>}
-                  {historyVisible && <GitHistory key={workspace} workspace={workspace} version={gitVersion} onCherryPick={cherryPickCommit} />}
+                  {historyVisible && <GitHistory key={workspace} workspace={workspace} version={gitVersion} refreshToken={gitHistoryVersion} busy={gitBusy} onBusyChange={handleGitHistoryBusy} onCherryPick={cherryPickCommit} onNotify={notify} />}
                 </div>
                 <TerminalPanel key={workspace} open={terminalOpen} active={mode === "ide" && !showProjects} createRequest={newTerminalRequest} focusRequest={terminalFocusRequest} onHide={hideTerminals} />
               </main>
@@ -1120,10 +1156,11 @@ export default function App() {
             {git.isRepo
               ? <BranchPicker workspace={workspace} version={gitVersion} current={git.branch} variant="status"
                   badge={git.changes.length > 0 ? "*" : undefined} hasChanges={git.changes.length > 0}
+                  attention={gitNeedsAttention(git)}
                   onBeforeCheckout={canCheckout} onSaveAll={saveBeforeBuild} onNotify={notify} onChanged={refreshSidebar} />
               : <button type="button" onClick={() => showView("git")} title="Visualizza branch e modifiche Git" className="status-item"><span className="status-branch-icon"><StatusBranchIcon /></span><span>Nessun repository</span></button>}
             {git.isRepo && <div className="status-sync-wrap">
-              <button type="button" onClick={() => syncMenuOpen ? setSyncMenuOpen(false) : void syncRepository()} disabled={fetchingGit} aria-label="Sincronizza repository" aria-busy={fetchingGit} aria-haspopup="menu" aria-expanded={syncMenuOpen} title={`Sincronizza repository · ${git.ahead || 0} da inviare, ${git.behind || 0} da scaricare${git.upstream ? ` · ${git.upstream}` : " · Nessun branch remoto associato"}`} className="status-item status-sync"><StatusSyncIcon className={fetchingGit ? "animate-spin" : ""} />{(git.behind > 0 || git.ahead > 0) && <><span className="status-sync-count" title={`${git.behind} commit da scaricare`}>↓{git.behind}</span><span className="status-sync-count" title={`${git.ahead} commit da inviare`}>↑{git.ahead}</span></>}</button>
+              <button type="button" onClick={() => syncMenuOpen ? setSyncMenuOpen(false) : void syncRepository()} disabled={fetchingGit} aria-label="Sincronizza repository" aria-busy={gitBusy} aria-haspopup="menu" aria-expanded={syncMenuOpen} title={`Sincronizza repository · ${git.ahead || 0} da inviare, ${git.behind || 0} da scaricare${git.upstream ? ` · ${git.upstream}` : " · Nessun branch remoto associato"}`} className="status-item status-sync"><StatusSyncIcon className={gitBusy ? "animate-spin-reverse" : ""} />{(git.behind > 0 || git.ahead > 0) && <><span className="status-sync-count" title={`${git.behind} commit da scaricare`}>↓{git.behind}</span><span className="status-sync-count" title={`${git.ahead} commit da inviare`}>↑{git.ahead}</span></>}</button>
               {syncMenuOpen && <>
                 <div className="fixed inset-0 z-40" onClick={() => setSyncMenuOpen(false)} />
                 <div className="status-sync-menu" role="menu" aria-label="Sincronizza repository">
@@ -1161,6 +1198,7 @@ export default function App() {
       {pendingOpen && <OpenInWindowModal name={pendingOpen.name} path={pendingOpen.kind === "recent" ? pendingOpen.path : undefined} creating={pendingOpen.kind === "create"} onChoose={confirmPendingOpen} onClose={() => setPendingOpen(null)} />}
       {settingsOpen && <SettingsModal prefs={prefs} onChange={updatePrefs} onReset={restorePrefs} onClose={() => setSettingsOpen(false)} />}
       {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
+      {closeConfirmOpen && <CloseConfirmModal warning={agentAlive ? AGENT_CLOSE_WARNING : null} onConfirm={confirmClose} onCancel={cancelClose} />}
       {showSplash && <SplashScreen isReady={appReady} onFinish={finishSplash} />}
       {toast && <div role="status" className="app-toast">{toast}<button type="button" className="icon-button ml-3" onClick={() => setToast(null)} title="Chiudi notifica" aria-label="Chiudi notifica"><XIcon className="h-3.5 w-3.5" /></button></div>}
     </div>

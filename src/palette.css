@@ -32,6 +32,8 @@
   --editor-occurrence: #8dbcf033;
   --editor-occurrence-main: #8dbcf04d;
   --editor-occurrence-border: #8dbcf066;
+  --editor-indent-guide: #ffffff12;
+  --editor-indent-guide-active: #9bd6bd66;
   --search-match: #649bd63b;
   --search-match-border: #649bd67a;
   --syntax-keyword: #c9b1ec;
@@ -92,6 +94,8 @@
   --editor-occurrence: #326cad26;
   --editor-occurrence-main: #326cad40;
   --editor-occurrence-border: #326cad59;
+  --editor-indent-guide: #00000016;
+  --editor-indent-guide-active: #256c5244;
   --search-match: #cda54538;
   --search-match-border: #9b742e73;
   --syntax-keyword: #7751a0;

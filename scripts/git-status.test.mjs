@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../src/lib/gitStatus.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { CHANGE_BADGES, buildChangeMap, changeKind } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { CHANGE_BADGES, buildChangeMap, changeKind, gitNeedsAttention } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 
 const change = (path, label, untracked = false) => ({ path, index: " ", worktree: " ", label, staged: false, untracked });
 
@@ -41,4 +41,11 @@ test("explorer map ignores deletions and normalizes Windows separators", () => {
   assert.equal(map.get("src/nested"), "modified");
   assert.equal(map.get("src"), "modified");
   assert.equal(map.has("src/gone.ts"), false);
+});
+
+test("detects changes or commits to push and pull", () => {
+  assert.equal(gitNeedsAttention({ changes: [change("a.txt", "M")], ahead: 0, behind: 0 }), true);
+  assert.equal(gitNeedsAttention({ changes: [], ahead: 2, behind: 0 }), true);
+  assert.equal(gitNeedsAttention({ changes: [], ahead: 0, behind: 1 }), true);
+  assert.equal(gitNeedsAttention({ changes: [], ahead: 0, behind: 0 }), false);
 });

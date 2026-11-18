@@ -44,12 +44,12 @@ const view = EditorView.theme(
       backgroundColor: "var(--editor-selection-inactive, var(--editor-selection, var(--selection)))",
     },
     ".cm-content .cm-selectionMatch": {
-      backgroundColor: "var(--editor-occurrence, var(--search-match, rgba(78,149,255,.25)))",
+      backgroundColor: "var(--editor-occurrence-main, var(--editor-occurrence, var(--search-match, rgba(78,149,255,.25))))",
       borderRadius: "2px",
       boxShadow: "inset 0 0 0 1px var(--editor-occurrence-border, transparent)",
     },
     ".cm-content .cm-selectionMatch-main": {
-      backgroundColor: "var(--editor-occurrence-main, var(--editor-occurrence, var(--search-match)))",
+      backgroundColor: "var(--editor-occurrence, var(--search-match, rgba(78,149,255,.25)))",
     },
     ".cm-cursor, .cm-dropCursor": {
       borderLeftColor: "var(--text, #f0f0f0)",
