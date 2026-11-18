@@ -83,18 +83,22 @@ async function install() {
   try {
     let downloaded = 0;
     let total = 0;
-    await update.downloadAndInstall((event) => {
+    await update.download((event) => {
       if (event.event === "Started") {
         total = event.data.contentLength ?? 0;
         setState({ progress: total ? 0 : null });
       } else if (event.event === "Progress") {
         downloaded += event.data.chunkLength;
-        setState({ progress: total ? Math.round((downloaded / total) * 100) : null });
+        setState({ progress: total ? Math.min(100, Math.round((downloaded / total) * 100)) : null });
       } else if (event.event === "Finished") {
         setState({ progress: 100 });
       }
     });
-    setState({ status: "ready" });
+    setState({ status: "ready", progress: 100 });
+    // Let the webview paint 100% before install exits the app on Windows.
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    // Windows: launches the NSIS installer and exits; the installer restarts the app.
+    await update.install();
     const { relaunch } = await import("@tauri-apps/plugin-process");
     await relaunch();
   } catch (reason) {
