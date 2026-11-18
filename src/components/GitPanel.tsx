@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { CHANGE_BADGES, CHANGE_LABELS, changeKind } from "../lib/gitStatus";
 import { api } from "../lib/tauri";
 import type { GitStatus, MergeOutcome } from "../types";
-import { AlertIcon, CheckIcon, ChevronRightIcon, CloudUpIcon, CrosshairIcon, DiscardIcon, GitBranchIcon, MergeIcon } from "./Icons";
+import { AlertIcon, ArrowLeftIcon, CheckIcon, ChevronRightIcon, CloudUpIcon, CrosshairIcon, GitBranchIcon, MergeIcon } from "./Icons";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { MergeModal } from "./MergeModal";
 import { ConflictResolverModal } from "./ConflictResolverModal";
@@ -13,16 +14,12 @@ type Props = {
   onReveal: (path: string) => void;
   onDiff: (path: string) => void;
   onRevert: (path: string, untracked: boolean) => void;
+  onRevertAll: () => void;
   onRefresh: () => void;
   onBeforeMerge?: () => boolean | Promise<boolean>;
   onNotify?: (message: string) => void;
 };
-const statusLabels: Record<string, string> = {
-  M: "Modificato", A: "Aggiunto", D: "Eliminato", R: "Rinominato",
-  C: "Copiato", U: "Nuovo", "?": "Nuovo", "!": "Conflitto",
-};
-
-export function GitPanel({ workspace, status, activePath, onReveal, onDiff, onRevert, onRefresh, onBeforeMerge, onNotify }: Props) {
+export function GitPanel({ workspace, status, activePath, onReveal, onDiff, onRevert, onRevertAll, onRefresh, onBeforeMerge, onNotify }: Props) {
   const [mergeMode, setMergeMode] = useState<"choose" | "from" | null>(null);
   const [resolverConflicts, setResolverConflicts] = useState<string[] | null>(null);
   const [resolverOperation, setResolverOperation] = useState<"merge" | "cherry-pick">("merge");
@@ -69,21 +66,30 @@ export function GitPanel({ workspace, status, activePath, onReveal, onDiff, onRe
       {(status.merging || status.cherryPicking) && conflicts.length === 0 && <button type="button" className="git-resolve-conflicts" onClick={() => openResolver([])}><MergeIcon className="h-4 w-4 shrink-0" />Completa {status.cherryPicking ? "cherry-pick" : "merge"}</button>}
       <div className="scroll-area min-h-0 flex-1 overflow-auto py-2">
         <div className="mb-4">
-          <div className="mb-1 flex items-center justify-between px-3 text-xs font-medium text-[var(--muted)]"><span>Modifiche</span><span>{status.changes.length}</span></div>
+          <div className="git-changes-header mb-1 flex items-center justify-between px-3 text-xs font-medium text-[var(--muted)]">
+            <span>Modifiche</span>
+            <span className="flex items-center gap-1">
+              {status.changes.length}
+              {status.changes.length > 0 && !status.merging && !status.cherryPicking && (
+                <button type="button" onClick={onRevertAll} title="Scarta tutte le modifiche" aria-label="Scarta tutte le modifiche" className="icon-button"><ArrowLeftIcon className="h-4 w-4" /></button>
+              )}
+            </span>
+          </div>
           {status.changes.map((change) => {
+            const kind = changeKind(change);
             const revertLabel = change.untracked ? `Elimina ${change.path} (file non tracciato)`
-              : change.label === "D" ? `Ripristina ${change.path}` : `Scarta le modifiche a ${change.path}`;
+              : kind === "deleted" ? `Ripristina ${change.path}` : `Scarta le modifiche a ${change.path}`;
             return (
               <div key={change.path} className={`git-change group flex items-center gap-1 px-2 hover:bg-[color-mix(in_srgb,var(--overlay)_4%,transparent)] ${change.path === activePath ? "is-active" : ""}`}>
-                <button type="button" onClick={() => onDiff(change.path)} title={`${change.path} · ${statusLabels[change.label] ?? change.label} · confronta con Git`} className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left">
+                <button type="button" onClick={() => onDiff(change.path)} title={`${change.path} · ${CHANGE_LABELS[kind]} · confronta con Git`} className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left">
                   <FileTypeIcon path={change.path} className="h-[18px] w-[18px] shrink-0" />
-                  <span className={`w-4 shrink-0 text-center font-mono text-xs ${change.label === "D" ? "text-[var(--danger)]" : change.untracked || change.label === "A" ? "text-[var(--accent)]" : "text-[var(--warning)]"}`}>{change.label}</span>
-                  <span className="truncate text-[13px] text-[var(--secondary)] group-hover:text-[var(--secondary)]">{change.path}</span>
+                  <span className="truncate text-[13px] text-[var(--secondary)]">{change.path}</span>
                 </button>
                 <div className="git-change-actions shrink-0">
-                  {change.label !== "D" && <button type="button" onClick={() => onReveal(change.path)} title="Rivela nell'esplora file" aria-label={`Rivela ${change.path} nell'esplora file`} className="icon-button"><CrosshairIcon className="h-4 w-4" /></button>}
-                  <button type="button" onClick={() => onRevert(change.path, change.untracked)} title={revertLabel} aria-label={revertLabel} className="icon-button"><DiscardIcon className="h-4 w-4" /></button>
+                  {kind !== "deleted" && <button type="button" onClick={() => onReveal(change.path)} title="Rivela nell'esplora file" aria-label={`Rivela ${change.path} nell'esplora file`} className="icon-button"><CrosshairIcon className="h-4 w-4" /></button>}
+                  <button type="button" onClick={() => onRevert(change.path, change.untracked)} title={revertLabel} aria-label={revertLabel} className="icon-button"><ArrowLeftIcon className="h-4 w-4" /></button>
                 </div>
+                <span className={`git-change-badge change-${kind} shrink-0`} title={CHANGE_LABELS[kind]} aria-label={`${change.path}: ${CHANGE_LABELS[kind]}`}>{CHANGE_BADGES[kind]}</span>
               </div>
             );
           })}

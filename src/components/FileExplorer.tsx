@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { api } from "../lib/tauri";
 import { ancestorDirectories, compactDirectory, dropOperations, isWithin, loadDirectoryChain, parentDirectory, remapExplorerPath, topLevelEntries, visibleEntries } from "../lib/explorer";
+import { CHANGE_LABELS, type ChangeKind } from "../lib/gitStatus";
 import type { DirEntry, FileOperation, WorkspaceMutation } from "../types";
 import { CheckIcon, ChevronRightIcon, FilePlusIcon, FolderPickerIcon, PencilIcon, TrashIcon, XIcon } from "./Icons";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -9,13 +10,13 @@ const DRAG_TYPE = "application/x-helmcode-entries";
 const HOVER_EXPAND_DELAY = 600;
 const sortEntries = (entries: DirEntry[]) => entries.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
 type Props = {
-  workspace: string; version: number; modified: Set<string>; activePath: string | null;
+  workspace: string; version: number; changes: ReadonlyMap<string, ChangeKind>; activePath: string | null;
   onOpen: (path: string) => void; createRequest: { id: number; kind: "file" | "folder" }; onCreated: () => void;
   onMutate: (operations: FileOperation[]) => Promise<WorkspaceMutation | null>;
   revealRequest: { path: string; nonce: number } | null;
 };
 
-export function FileExplorer({ workspace, version, modified, activePath, onOpen, createRequest, onCreated, onMutate, revealRequest }: Props) {
+export function FileExplorer({ workspace, version, changes, activePath, onOpen, createRequest, onCreated, onMutate, revealRequest }: Props) {
   const [selected, setSelected] = useState<DirEntry | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<{ parent: string; kind: "file" | "folder" } | null>(null);
@@ -354,7 +355,7 @@ export function FileExplorer({ workspace, version, modified, activePath, onOpen,
       {error && <div role="alert" className="mx-1.5 rounded-md border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs text-[var(--danger)]">{error}</div>}
       {!loading && !error && !draft && root.length === 0 && <div className="px-3 py-4 text-[13px] text-[var(--muted)]">Nessun file visibile.</div>}
       {renderCreate(".", 0)}
-      <Tree entries={root} depth={0} expanded={expanded} children={children} modified={modified} activePath={activePath}
+      <Tree entries={root} depth={0} expanded={expanded} children={children} changes={changes} activePath={activePath}
         onClick={clickEntry} onFocus={setSelected} selectedPaths={selectedPaths} onContextMenu={contextMenu} renderCreate={renderCreate} renderRename={renderRename}
         busy={busy} dropTarget={dropTarget} onDragStart={dragStart} onDragOver={dragOver} onDrop={drop} onDragEnd={endDrag} />
     </div>
@@ -376,17 +377,17 @@ export function FileExplorer({ workspace, version, modified, activePath, onOpen,
 }
 
 type TreeProps = {
-  entries: DirEntry[]; depth: number; expanded: Set<string>; children: Record<string, DirEntry[]>; modified: Set<string>; activePath: string | null;
+  entries: DirEntry[]; depth: number; expanded: Set<string>; children: Record<string, DirEntry[]>; changes: ReadonlyMap<string, ChangeKind>; activePath: string | null;
   onClick: (entry: DirEntry, event: MouseEvent) => void; onFocus: (entry: DirEntry) => void; selectedPaths: Set<string>;
   onContextMenu: (event: MouseEvent, entry: DirEntry) => void; renderCreate: (parent: string, depth: number) => ReactNode; renderRename: (entry: DirEntry, depth: number) => ReactNode;
   busy: boolean; dropTarget: string | null; onDragStart: (event: DragEvent, entry: DirEntry) => void; onDragOver: (event: DragEvent, entry: DirEntry | null) => void;
   onDrop: (event: DragEvent, entry: DirEntry | null) => void; onDragEnd: () => void;
 };
 function Tree(props: TreeProps) {
-  const { entries, depth, expanded, children, modified, activePath, onClick, onFocus, selectedPaths, onContextMenu, renderCreate, renderRename, busy, dropTarget, onDragStart, onDragOver, onDrop, onDragEnd } = props;
+  const { entries, depth, expanded, children, changes, activePath, onClick, onFocus, selectedPaths, onContextMenu, renderCreate, renderRename, busy, dropTarget, onDragStart, onDragOver, onDrop, onDragEnd } = props;
   return <>{entries.map((entry) => {
     const { label, leaf } = compactDirectory(entry, expanded, children);
-    const isOpen = expanded.has(leaf.path), isModified = modified.has(leaf.path);
+    const isOpen = expanded.has(leaf.path), change = changes.get(leaf.path);
     return <div key={entry.path}>
       {renderRename(leaf, depth) ?? <button type="button" disabled={busy} draggable={!busy}
         onClick={(event) => onClick(leaf, event)} onFocus={() => onFocus(leaf)} onContextMenu={(event) => onContextMenu(event, leaf)}
@@ -396,8 +397,8 @@ function Tree(props: TreeProps) {
         className="group tree-row" style={{ paddingLeft: `${6 + depth * 10}px` }} title={leaf.path}>
         {leaf.isDir ? <ChevronRightIcon className={`h-3 w-3 shrink-0 text-[var(--muted)] transition-transform ${isOpen ? "rotate-90" : ""}`} /> : <span className="w-3 shrink-0" />}
         <FileTypeIcon path={entry.path} isDir={leaf.isDir} open={isOpen} className="h-4 w-4 shrink-0" />
-        <span className="truncate">{label}</span>
-        {isModified && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />}
+        <span className={`truncate${change ? ` change-${change}` : ""}`}>{label}</span>
+        {change && <span className={`change-dot change-${change} ml-auto`} title={CHANGE_LABELS[change]} aria-label={CHANGE_LABELS[change]} />}
       </button>}
       {leaf.isDir && isOpen && <>{renderCreate(leaf.path, depth + 1)}<Tree {...props} entries={Object.hasOwn(children, leaf.path) ? children[leaf.path] : []} depth={depth + 1} /></>}
     </div>;

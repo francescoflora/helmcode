@@ -175,6 +175,7 @@ try {
           if (command === 'plugin:window|is_maximized') return false;
           if (command === 'plugin:window|show') { window.__qaThemeAtShow = document.documentElement.dataset.theme; return; }
           if (command.startsWith('plugin:window|')) return;
+          if (command.startsWith('plugin:updater|')) return null;
           if (command === 'plugin:app|version') return '0.1.0';
           if (command === 'get_workspace') return new URLSearchParams(location.search).has('start') ? '' : 'C:/Projects/helmcode';
           if (command === 'open_workspace') return args.path;
@@ -245,13 +246,13 @@ try {
           }
           if (command === 'read_file_text') { if (!(args.path in files)) throw new Error('File unavailable'); if (window.__qaReadFile) return window.__qaReadFile(args.path, files[args.path]); return files[args.path]; }
           if (command === 'save_file') { if (window.__qaPauseNextSave) { window.__qaPauseNextSave = false; await new Promise(resolve => { window.__qaFinishSave = resolve; }); } files[args.path] = args.content; if (args.path === 'notes.unknown' && typeof window.__qaReplaceText === 'string') window.__qaReplaceText = args.content; if (!changes.some(c => c.path === args.path)) changes.push({ path: args.path, index: ' ', worktree: 'M', label: 'M', staged: false, untracked: false }); if (!window.__qaHoldSaveEvents) setTimeout(() => window.__qaEmit('fs-changed', { paths: [args.path] }), 10); return; }
-          if (command === 'git_status' || command === 'git_fetch') return { isRepo: true, branch, changes, upstream: 'origin/' + branch, ahead: window.__qaAhead || 0, behind: window.__qaBehind || 0, merging: false };
+          if (command === 'git_status' || command === 'git_fetch') return { isRepo: true, branch, changes: changes.map(change => ({ ...change })), upstream: 'origin/' + branch, ahead: window.__qaAhead || 0, behind: window.__qaBehind || 0, merging: false };
           if (command === 'git_branches') return [{ name: 'main', current: branch === 'main', remote: false, shortHash: 'aaaaaaa', author: 'Francesco Flora', date: '2026-11-12T10:30:00+01:00', subject: 'feat: grafo commit' }, { name: 'feature/clean-ui', current: branch === 'feature/clean-ui', remote: false, shortHash: 'bbbbbbb', author: 'Ada Lovelace', date: '2026-11-11T09:15:00+01:00', subject: 'fix: ramo feature' }, { name: 'origin/main', current: false, remote: true, shortHash: 'aaaaaaa', author: 'Francesco Flora', date: '2026-11-12T10:30:00+01:00', subject: 'feat: grafo commit' }];
           if (command === 'git_checkout') { branch = args.branch; return; }
           if (command === 'git_create_branch') {
             branch = args.name;
             if (!args.keepChanges) changes.splice(0, changes.length);
-            return { isRepo: true, branch, changes, upstream: 'origin/' + branch, ahead: 0, behind: 0, merging: false };
+            return { isRepo: true, branch, changes: changes.map(change => ({ ...change })), upstream: 'origin/' + branch, ahead: 0, behind: 0, merging: false };
           }
           if (command === 'git_file_diff') {
             if (window.__qaLongDiff) {
@@ -345,10 +346,14 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width: 760, height: 500, deviceScaleFactor: 1, mobile: false });
   await checkCaption('.start-header');
   await screenshot('projects-760.png');
+  await until(`window.__qaCalls.some(c => c.command === 'git_fetch' && c.args.expectedWorkspace === 'C:/Projects/helmcode')`, 'Project startup fetches remote updates');
   const opensBeforeDirect = await evaluate(`window.__qaCalls.filter(c => c.command === 'open_workspace').length`);
   await evaluate(`document.querySelector('.recent-row button').click()`);
   await until(`!document.querySelector('.start-screen')`, 'recent opens directly from the Projects screen');
   assert.equal(await evaluate(`window.__qaCalls.filter(c => c.command === 'open_workspace').length`), opensBeforeDirect + 1, 'Recent project opens in the current window');
+  const fetchesBeforeReopen = await evaluate(`window.__qaCalls.filter(c => c.command === 'git_fetch').length`);
+  await evaluate(`window.__qaEmit('workspace-changed', 'C:/Projects/helmcode')`);
+  await until(`window.__qaCalls.filter(c => c.command === 'git_fetch').length > ${fetchesBeforeReopen}`, 'Reopening the same project fetches remote updates again');
   assert.equal(await evaluate(`!document.querySelector('.window-choice')`), true, 'No window choice on the Projects screen');
   await evaluate(`document.querySelector('.project-switcher-toggle').click()`);
   await until(`!!document.querySelector('.project-menu')`, 'project menu after direct open');
@@ -430,14 +435,52 @@ try {
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', modifiers: 8, windowsVirtualKeyCode: 9 });
   await until(`document.querySelector('.cm-line').textContent === ${JSON.stringify(firstLineBeforeTab)}`, 'Shift Tab removes indentation');
   assert.equal(await evaluate(`document.activeElement === document.querySelector('.cm-content')`), true, 'Shift Tab keeps focus in editor');
+  await evaluate(`document.querySelector('.cm-content').focus()`);
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Home', code: 'Home', windowsVirtualKeyCode: 36 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Home', code: 'Home', windowsVirtualKeyCode: 36 });
+  for (let index = 0; index < 7; index++) {
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+  }
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+  const midLineAfterTab = `${firstLineBeforeTab.slice(0, 7)}  ${firstLineBeforeTab.slice(7)}`;
+  await until(`document.querySelector('.cm-line').textContent === ${JSON.stringify(midLineAfterTab)}`, 'Tab inserts indentation only at the cursor');
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'z', code: 'KeyZ', modifiers: 2, windowsVirtualKeyCode: 90 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'z', code: 'KeyZ', modifiers: 2, windowsVirtualKeyCode: 90 });
+  await until(`document.querySelector('.cm-line').textContent === ${JSON.stringify(firstLineBeforeTab)}`, 'Undo restores the cursor-only indentation');
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Home', code: 'Home', windowsVirtualKeyCode: 36 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Home', code: 'Home', windowsVirtualKeyCode: 36 });
+  const greetingOffset = firstLineBeforeTab.indexOf("greeting");
+  for (let index = 0; index < greetingOffset; index++) {
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+  }
+  await until(`!!document.querySelector('.cm-selectionMatch-main') && document.querySelectorAll('.cm-selectionMatch').length >= 2`, 'Word under cursor highlights every occurrence');
+  for (let index = 0; index < "greeting".length; index++) {
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', modifiers: 8, windowsVirtualKeyCode: 39 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', modifiers: 8, windowsVirtualKeyCode: 39 });
+  }
+  await until(`!!document.querySelector('.cm-selectionBackground')`, 'Selected text draws a stronger selection layer');
+  assert.equal(await evaluate(`(() => {
+    const selection = document.querySelector('.cm-selectionBackground');
+    const occurrence = document.querySelector('.cm-selectionMatch');
+    if (!selection || !occurrence) return false;
+    const selectedColor = getComputedStyle(selection).backgroundColor;
+    const occurrenceColor = getComputedStyle(occurrence).backgroundColor;
+    return selectedColor !== 'rgba(0, 0, 0, 0)' && selectedColor !== occurrenceColor;
+  })()`), true, 'Selection is more visible than other occurrences');
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Home', code: 'Home', windowsVirtualKeyCode: 36 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Home', code: 'Home', windowsVirtualKeyCode: 36 });
   await screenshot('helm.png');
   await evaluate(`document.querySelector('.cm-content').focus()`);
-  await send('Input.insertText', { text: '// local edit\n' });
-  await until(`document.querySelector('.mode-button:last-child .change-badge')?.textContent.trim() === '3'`, 'autosave dirty count');
-  assert.equal(await evaluate(`document.querySelector('.activity-badge').textContent.trim()`), '3');
   const autosavesBefore = await evaluate(`window.__qaCalls.filter(call => call.command === 'save_file').length`);
-  await until(`window.__qaCalls.filter(call => call.command === 'save_file').length > ${autosavesBefore} && !document.querySelector('.unsaved-dot')`, 'autosave writes edits without an explicit save');
+  await send('Input.insertText', { text: '// local edit\n' });
+  await until(`document.querySelector('.mode-button:last-child .change-badge')?.textContent.trim() === '3'`, 'commit-worthy change count');
+  assert.equal(await evaluate(`document.querySelector('.activity-badge').textContent.trim()`), '3');
+  await until(`window.__qaCalls.filter(call => call.command === 'save_file').length > ${autosavesBefore} && !!document.querySelector('.file-tab .change-dot.change-modified')`, 'autosave writes edits without an explicit save');
   assert.equal(await evaluate(`window.__qaCalls.filter(call => call.command === 'save_file').at(-1).args.content.includes('// local edit')`), true, 'Autosave stores the latest editor text');
+  await until(`!!document.querySelector('.tree-row[title="src"] .change-dot.change-modified') && !!document.querySelector('.tree-row[title="src/main.ts"] .change-dot.change-modified')`, 'Explorer marks modified files and folders');
   await evaluate(`document.querySelector('.statusbar .branch-picker-trigger').click()`);
   await until(`document.querySelectorAll('.branch-picker-item').length === 3`, 'branch menu after autosave');
   await evaluate(`document.querySelector('.statusbar .branch-picker-trigger').click()`);
@@ -466,9 +509,10 @@ try {
   await clickText('HELM');
   await until(`document.querySelector('.cm-content')?.offsetWidth > 0 && document.querySelector('.mode-button:last-child .change-badge')?.textContent.trim() === '3'`, 'preserved editor');
   await evaluate(`document.querySelector('.cm-content').focus()`);
+  const savesBefore = await evaluate(`window.__qaCalls.filter(call => call.command === 'save_file').length`);
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 's', code: 'KeyS', modifiers: 2, windowsVirtualKeyCode: 83 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 's', code: 'KeyS', modifiers: 2, windowsVirtualKeyCode: 83 });
-  await until(`!document.querySelector('.unsaved-dot')`, 'save file');
+  await until(`window.__qaCalls.filter(call => call.command === 'save_file').length > ${savesBefore}`, 'save file');
   await pause(400);
   assert.equal(await evaluate(`document.querySelector('.mode-button:last-child .change-badge').textContent.trim()`), '3');
   await evaluate(`document.querySelector('.diff-toggle').click()`);
@@ -500,8 +544,13 @@ try {
   assert.equal(await evaluate(`document.querySelector('.git-history')?.textContent.includes('Ada Lovelace') && document.querySelector('.git-history')?.textContent.includes('bbbbbbb') && document.querySelector('.git-history')?.textContent.includes('2026')`), true, 'Graph shows author, id and date');
   assert.equal(await evaluate(`document.querySelector('.git-ref.is-head')?.textContent === 'main' && document.querySelector('.git-ref.is-tag')?.textContent === 'v0.1.0'`), true, 'Graph shows branch and tag references');
   assert.equal(await evaluate(`document.querySelectorAll('.git-history-table-header [role="columnheader"]').length === 5 && Array.from(document.querySelectorAll('.git-history-table-header [role="columnheader"]')).map(cell => cell.textContent).join('|') === 'Grafo|Descrizione|Data|Autore|Commit'`), true, 'Graph uses table columns');
+  assert.equal(await evaluate(`document.querySelectorAll('.git-history-table-header .git-col-resizer').length === 4`), true, 'Graph columns expose resize handles');
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll('.git-history-table-header [role="columnheader"]')).every(cell => cell.getBoundingClientRect().width > 0)`), true, 'Graph columns have positive widths');
+  assert.equal(await evaluate(`(() => { const cell = document.querySelector('.git-history-graph'); const svg = cell?.querySelector('svg'); return !!svg && svg.getBoundingClientRect().width <= cell.getBoundingClientRect().width + 1; })()`), true, 'Graph fits its column');
   assert.equal(await evaluate(`document.querySelectorAll('.git-history-graph svg').length === 3 && document.querySelectorAll('.git-history-graph circle').length === 3 && document.querySelectorAll('.git-history-graph path, .git-history-graph line').length > 3`), true, 'Graph renders SVG nodes and lanes');
   assert.equal(await evaluate(`document.querySelector('.git-history-graph')?.textContent.trim() === ''`), true, 'Graph has no ASCII lane text');
+  assert.equal(await evaluate(`document.querySelectorAll('.git-change-badge').length === document.querySelectorAll('.git-change').length`), true, 'Every Git change has a badge on the right');
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll('.git-change-badge')).every(badge => ['U', 'M', 'D'].includes(badge.textContent.trim()))`), true, 'Git badges use U, M and D');
   assert.equal(await evaluate(`!!document.querySelector('.file-breadcrumb') || !!document.querySelector('.diff-toggle') || !!document.querySelector('.editor-tabs')`), false, 'Graph hides editor tab bar, breadcrumb and diff toggle');
   await screenshot('git-graph.png');
   await evaluate(`document.querySelector('.git-history-row').click()`);
@@ -536,13 +585,13 @@ try {
   await screenshot('build.png');
   assert.equal(await evaluate(`!!document.querySelector('.statusbar .branch-picker-badge')`), true, 'Dirty repository keeps its attention marker');
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('.tree-row[aria-current="true"]')).boxShadow`), 'none', 'Selected file has no left stroke');
-  await evaluate(`window.__qaAhead = 2; window.__qaBehind = 1; document.querySelector('button[aria-label="Aggiorna repository"]').click()`);
+  await evaluate(`window.__qaAhead = 2; window.__qaBehind = 1; document.querySelector('button[aria-label="Sincronizza repository"]').click()`);
   await until(`document.querySelector('.statusbar .status-sync')?.textContent.includes('↑2')`, 'Remote update counts appear after fetch');
   assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.statusbar .status-sync-count'), count => count.textContent)`), ['↓1', '↑2'], 'Sync item shows incoming commits first and outgoing commits on the right');
   assert.equal(await evaluate(`document.querySelector('.statusbar .branch-picker-trigger').textContent.trim().endsWith('*')`), true, 'Uncommitted changes keep the branch star');
   assert.equal(await evaluate(`window.__qaCalls.filter(c => c.command === 'git_fetch').at(-1).args.expectedWorkspace`), 'C:/Projects/helmcode', 'Fetch targets current repository');
-  await evaluate(`window.__qaAhead = 0; window.__qaBehind = 0; document.querySelector('button[aria-label="Aggiorna repository"]').click()`);
-  await until(`document.querySelector('button[aria-label="Aggiorna repository"]').title.includes('0 da inviare, 0 da scaricare')`, 'Remote counts clear when up to date');
+  await evaluate(`window.__qaAhead = 0; window.__qaBehind = 0; document.querySelector('button[aria-label="Sincronizza repository"]').click()`);
+  await until(`document.querySelector('button[aria-label="Sincronizza repository"]').title.includes('0 da inviare, 0 da scaricare')`, 'Remote counts clear when up to date');
   assert.equal(await evaluate(`document.querySelector('.statusbar .status-sync').textContent.trim()`), '', 'Sync item hides counts when up to date');
   assert.equal(await evaluate(`!!document.querySelector('.statusbar .branch-picker-badge')`), true, 'Local changes keep the existing attention marker');
   await evaluate(`document.querySelector('.statusbar .branch-picker-trigger').click()`);
@@ -867,11 +916,14 @@ try {
   await until(`window.__qaCalls.filter(c => c.command === 'pty_create' && !c.args.agent).length === 4`, 'Restart creates fresh PTY');
   await pause(250);
   await screenshot('terminals.png');
+  assert.equal(await evaluate(`(() => { const panel = document.querySelector('.terminal-panel').getBoundingClientRect(); const bar = document.querySelector('.statusbar').getBoundingClientRect(); return panel.bottom <= bar.top + 1; })()`), true, 'Terminal panel stays above the status bar');
+  assert.equal(await evaluate(`(() => { const screen = document.querySelector('.terminal-pane:not([hidden]) .xterm-screen')?.getBoundingClientRect(); const host = document.querySelector('.terminal-pane:not([hidden]) .terminal-session > div')?.getBoundingClientRect(); return !!screen && !!host && screen.bottom <= host.bottom + 1; })()`), true, 'Terminal rows fit inside the visible host');
   const terminalHeight = await evaluate(`document.querySelector('.terminal-panel').getBoundingClientRect().height`);
   await evaluate(`document.querySelector('[aria-label="Ridimensiona terminali"]').focus()`);
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38 });
   assert.ok(await evaluate(`document.querySelector('.terminal-panel').getBoundingClientRect().height > ${terminalHeight}`), 'Terminal panel resizes using keyboard');
+  assert.equal(await evaluate(`(() => { const panel = document.querySelector('.terminal-panel').getBoundingClientRect(); const bar = document.querySelector('.statusbar').getBoundingClientRect(); return panel.bottom <= bar.top + 1; })()`), true, 'Resized terminal stays above the status bar');
   await evaluate(`Array.from(document.querySelectorAll('.terminal-tab-close')).forEach(button => button.click())`);
   await until(`!!document.querySelector('.terminal-empty')`, 'Closing all terminals shows empty state');
   await evaluate(`document.querySelector('button[aria-label="Nascondi terminali"]').click(); document.querySelector('button[aria-label="Terminali"]').click()`);

@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../src/lib/gitGraph.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { GRAPH_COLORS, laneColor, layoutCommitGraph } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { GRAPH_COLORS, LANE_WIDTH, graphColumnWidth, laneColor, layoutCommitGraph } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const commit = (hash, parents, subject = hash) => ({ hash, shortHash: hash, parents, author: "Test", email: "test@example.test", date: "2026-11-12T10:00:00+01:00", subject, refs: [] });
 
 test("linear history keeps a single lane and connects each parent", () => {
@@ -35,6 +35,13 @@ test("new branch tips reuse free lanes and missing parents leave a dangling lane
   assert.deepEqual(layout.rows[0].start, []);
   assert.deepEqual(layout.rows[0].end, ["missing"]);
   assert.deepEqual(layout.rows[0].edges, [{ from: 0, to: 0 }]);
+});
+
+test("graph column grows with lanes and keeps a minimum width", () => {
+  assert.equal(graphColumnWidth(0), 40);
+  assert.equal(graphColumnWidth(1), 40);
+  assert.equal(graphColumnWidth(2), 12 + LANE_WIDTH + 12);
+  assert.ok(graphColumnWidth(5) > graphColumnWidth(4));
 });
 
 test("lane colors provide twelve distinct values and repeat after the palette", () => {

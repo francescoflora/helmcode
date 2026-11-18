@@ -63,7 +63,7 @@ button, input, select { transition: background-color 120ms, color 120ms, border-
 .ai-workspace { position: relative; flex-direction: column; background: var(--color-canvas); }
 .ai-workspace > div:first-child { flex: 1; min-height: 0; }
 .terminal-session { position: relative; width: 100%; height: 100%; min-height: 0; }
-.terminal-panel { position: relative; display: flex; flex-direction: column; flex-shrink: 0; max-height: calc(100% - 180px); min-height: 160px; border-top: 1px solid var(--border); background: var(--color-canvas); }
+.terminal-panel { position: relative; display: flex; flex-direction: column; flex-shrink: 1; max-height: calc(100% - 180px); min-height: 160px; overflow: hidden; border-top: 1px solid var(--border); background: var(--color-canvas); }
 .terminal-resizer { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: row-resize; touch-action: none; z-index: 3; }
 .terminal-resizer:hover, .terminal-resizer:focus-visible { background: color-mix(in srgb, var(--accent) 31.37%, transparent); }
 .terminal-toolbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; height: 42px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--border); background: var(--chrome); }
@@ -142,7 +142,7 @@ button, input, select { transition: background-color 120ms, color 120ms, border-
 .sidebar-resizer { flex-shrink: 0; width: 1px; cursor: col-resize; background: var(--border); position: relative; z-index: 2; }
 .sidebar-resizer::after { position: absolute; content: ""; inset: 0 -3px; }
 .sidebar-resizer:hover { background: color-mix(in srgb, var(--accent) 50.2%, transparent); }
-.editor-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; background: var(--color-canvas); }
+.editor-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--color-canvas); }
 .editor-tabs { display: flex; align-items: stretch; flex-shrink: 0; height: var(--panel-header-height); border-bottom: 1px solid var(--border); background: var(--chrome); }
 .editor-placeholder { display: flex; align-items: center; padding: 0 16px; font-size: 13px; color: var(--muted); }
 .file-tabs { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; }
@@ -153,9 +153,15 @@ button, input, select { transition: background-color 120ms, color 120ms, border-
 .file-tab-close { display: grid; place-items: center; align-self: center; width: 22px; height: 22px; margin: 0 8px 0 2px; border-radius: 4px; color: color-mix(in srgb, var(--overlay) 18.82%, transparent); }
 .file-tab:hover .file-tab-close { color: color-mix(in srgb, var(--overlay) 50.2%, transparent); }
 .file-tab-close:hover { background: color-mix(in srgb, var(--overlay) 3.92%, transparent); color: white; }
+.git-changes-header .icon-button { width: 22px; height: 22px; }
+.git-change-badge { width: 16px; margin-left: 4px; text-align: center; font-family: var(--font-mono); font-size: 11px; font-weight: 700; }
 .git-change-actions { display: flex; gap: 1px; opacity: 0; transition: opacity .1s ease; }
 .git-change:hover .git-change-actions, .git-change:focus-within .git-change-actions, .git-change.is-active .git-change-actions { opacity: 1; }
-.unsaved-dot { height: 5px; width: 5px; flex-shrink: 0; border-radius: 50%; background: var(--warning); }
+.change-dot { height: 6px; width: 6px; flex-shrink: 0; border-radius: 50%; background: var(--warning); }
+.change-dot.change-added { background: var(--accent); }
+.change-added { color: var(--accent); }
+.change-modified { color: var(--warning); }
+.change-deleted { color: var(--danger); }
 .diff-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; color: var(--secondary); border-left: 1px solid var(--border); font-size: 12px; }
 .diff-toggle:hover, .diff-toggle.is-active { color: var(--accent); background: color-mix(in srgb, var(--accent) 3.14%, transparent); }
 .file-breadcrumb { height: 34px; display: flex; gap: 12px; align-items: center; flex-shrink: 0; padding: 0 18px; font-size: 12px; color: var(--muted); border-bottom: 1px solid color-mix(in srgb, var(--overlay) 1.18%, transparent); overflow: hidden; }
@@ -172,8 +178,20 @@ button, input, select { transition: background-color 120ms, color 120ms, border-
 .git-history-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .git-history-header .icon-button { width: 28px; height: 28px; }
 .git-history-list { flex: 1; min-height: 0; overflow: auto; }
-.git-history-table { display: flex; flex-direction: column; min-width: 760px; }
-.git-history-table-header, .git-history-row { display: grid; grid-template-columns: var(--graph-width, 36px) minmax(0, 1fr) 150px 140px 86px; align-items: center; column-gap: 12px; padding: 0 14px; }
+.git-history-table {
+  --git-graph-width: 40px;
+  --git-description-min: 180px;
+  --git-date-width: 150px;
+  --git-author-width: 140px;
+  --git-hash-width: 86px;
+  display: flex; flex-direction: column;
+  min-width: max(760px, calc(var(--git-graph-width) + var(--git-description-min) + var(--git-date-width) + var(--git-author-width) + var(--git-hash-width) + 76px));
+}
+.git-history-table-header, .git-history-row { display: grid; grid-template-columns: var(--git-graph-width) minmax(var(--git-description-min), 1fr) var(--git-date-width) var(--git-author-width) var(--git-hash-width); align-items: center; column-gap: 12px; padding: 0 14px; }
+.git-history-table-header > [role="columnheader"] { position: relative; }
+.git-col-resizer { position: absolute; top: 0; right: -6px; z-index: 1; width: 12px; height: 30px; cursor: col-resize; touch-action: none; }
+.git-col-resizer::after { position: absolute; content: ""; top: 6px; bottom: 6px; left: 5px; width: 1px; background: var(--border); opacity: 0; transition: opacity .1s ease; }
+.git-col-resizer:hover::after, .git-col-resizer:focus-visible::after { background: var(--accent); opacity: 1; }
 .git-history-table-header { position: sticky; top: 0; z-index: 2; height: 30px; border-bottom: 1px solid var(--border); background: var(--color-surface); color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .git-history-row { min-height: 30px; border-bottom: 1px solid color-mix(in srgb, var(--overlay) 1.96%, transparent); color: var(--secondary); font-size: 12px; }
 .git-history-row:hover { background: color-mix(in srgb, var(--overlay) 2.35%, transparent); }

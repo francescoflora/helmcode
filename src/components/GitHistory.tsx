@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
-import { layoutCommitGraph, laneColor, type GraphRow } from "../lib/gitGraph";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { autoFitGitColumns, DESCRIPTION_MIN_WIDTH, GIT_COLUMN_BOUNDS, splitColumnWidth } from "../lib/gitColumns";
+import { graphColumnWidth, LANE_WIDTH, layoutCommitGraph, laneColor, type GraphRow } from "../lib/gitGraph";
 import { api } from "../lib/tauri";
 import type { GitCommitFile, GitLog } from "../types";
 import { CommitDiff } from "./CommitDiff";
@@ -9,17 +10,34 @@ import { CloudIcon, GitBranchIcon, RefreshIcon, TagIcon, TargetIcon } from "./Ic
 const PAGE_SIZE = 300;
 const MAX_COMMITS = 2000;
 const ROW_HEIGHT = 30;
-const LANE_WIDTH = 18;
 const laneStroke = (lane: number) => `var(--git-lane-${lane % 12}, ${laneColor(lane)})`;
 type Props = { workspace: string; version: number; onCherryPick: (hash: string) => void | Promise<void> };
 type SelectedFile = { hash: string; shortHash: string; path: string; oldPath: string | null };
 type RefKind = "head" | "local" | "remote" | "tag";
 type CommitMenu = { hash: string; shortHash: string; x: number; y: number };
+type ColumnHandle = "graph" | "description" | "date" | "author";
+type CustomWidths = { graph?: number; date?: number; author?: number; hash?: number };
+type DragState = { handle: ColumnHandle; startX: number; left: number; right: number };
+
+const SANS_FONT = '11px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif';
+const MONO_FONT = '11px "Cascadia Code", "Consolas", ui-monospace, monospace';
+// Column widths last for the app session, even when the Git view is unmounted.
+let sessionWidths: CustomWidths = {};
+let measureContext: CanvasRenderingContext2D | null | undefined;
+
+function measureText(text: string, mono = false): number {
+  if (measureContext === undefined) measureContext = document.createElement("canvas").getContext("2d");
+  if (!measureContext) return text.length * 7;
+  measureContext.font = mono ? MONO_FONT : SANS_FONT;
+  return measureContext.measureText(text).width;
+}
+
+const shortDate = new Intl.DateTimeFormat("it-IT", { dateStyle: "medium", timeStyle: "short" });
+const longDate = new Intl.DateTimeFormat("it-IT", { dateStyle: "full", timeStyle: "long" });
 
 function dateLabel(value: string, full = false): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value :
-    date.toLocaleString("it-IT", full ? { dateStyle: "full", timeStyle: "long" } : { dateStyle: "medium", timeStyle: "short" });
+  return Number.isNaN(date.getTime()) ? value : (full ? longDate : shortDate).format(date);
 }
 
 function refLabel(value: string, remotes: string[]): { label: string; kind: RefKind } {
@@ -49,7 +67,16 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
   const [filesLoading, setFilesLoading] = useState(false);
   const [selected, setSelected] = useState<SelectedFile | null>(null);
   const [menu, setMenu] = useState<CommitMenu | null>(null);
+  const [customWidths, setCustomWidths] = useState<CustomWidths>(() => sessionWidths);
   const filesRequest = useRef(0);
+  const drag = useRef<DragState | null>(null);
+  const descriptionRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    sessionWidths = customWidths;
+  }, [customWidths]);
+
+  useEffect(() => () => { document.body.classList.remove("resizing"); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,8 +101,97 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
   }, [menu]);
 
   const layout = useMemo(() => layoutCommitGraph(log?.commits ?? []), [log]);
-  const graphWidth = Math.max(40, 24 + (layout.lanes - 1) * LANE_WIDTH);
+  const autoWidths = useMemo(() => autoFitGitColumns(
+    layout.rows.map((row) => row.commit),
+    layout.rows.map((row) => dateLabel(row.commit.date)),
+    measureText,
+  ), [layout]);
+  const autoGraphWidth = graphColumnWidth(layout.lanes);
+  const graphWidth = Math.max(autoGraphWidth, customWidths.graph ?? 0);
+  const dateWidth = customWidths.date ?? autoWidths.date;
+  const authorWidth = customWidths.author ?? autoWidths.author;
+  const hashWidth = customWidths.hash ?? autoWidths.hash;
+  const tableStyle = {
+    "--git-graph-width": `${graphWidth}px`,
+    "--git-description-min": `${DESCRIPTION_MIN_WIDTH}px`,
+    "--git-date-width": `${dateWidth}px`,
+    "--git-author-width": `${authorWidth}px`,
+    "--git-hash-width": `${hashWidth}px`,
+  } as CSSProperties;
   const commitCount = log?.commits.length ?? 0;
+
+  const descriptionWidth = () => descriptionRef.current?.getBoundingClientRect().width ?? 0;
+
+  function currentStart(handle: ColumnHandle): { left: number; right: number } {
+    const description = descriptionWidth();
+    if (handle === "graph") return { left: graphWidth, right: description };
+    if (handle === "description") return { left: description, right: dateWidth };
+    if (handle === "date") return { left: dateWidth, right: authorWidth };
+    return { left: authorWidth, right: hashWidth };
+  }
+
+  function applyResize(handle: ColumnHandle, delta: number, start: { left: number; right: number }): CustomWidths | null {
+    if (start.left <= 0 || start.right <= 0) return null;
+    if (handle === "graph") {
+      const result = splitColumnWidth(start.left, start.right, delta, autoGraphWidth, DESCRIPTION_MIN_WIDTH);
+      return { graph: result.left };
+    }
+    if (handle === "description") {
+      const result = splitColumnWidth(start.left, start.right, delta, DESCRIPTION_MIN_WIDTH, GIT_COLUMN_BOUNDS.date.min);
+      return { date: result.right };
+    }
+    if (handle === "date") {
+      const result = splitColumnWidth(start.left, start.right, delta, GIT_COLUMN_BOUNDS.date.min, GIT_COLUMN_BOUNDS.author.min);
+      return { date: result.left, author: result.right };
+    }
+    const result = splitColumnWidth(start.left, start.right, delta, GIT_COLUMN_BOUNDS.author.min, GIT_COLUMN_BOUNDS.hash.min);
+    return { author: result.left, hash: result.right };
+  }
+
+  function resizeBy(handle: ColumnHandle, delta: number) {
+    const patch = applyResize(handle, delta, currentStart(handle));
+    if (patch) setCustomWidths((current) => ({ ...current, ...patch }));
+  }
+
+  function beginResize(event: ReactPointerEvent<HTMLSpanElement>, handle: ColumnHandle) {
+    if (event.button !== 0) return;
+    const start = currentStart(handle);
+    if (start.left <= 0 || start.right <= 0) return;
+    drag.current = { handle, startX: event.clientX, ...start };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    document.body.classList.add("resizing");
+  }
+
+  function moveResize(event: ReactPointerEvent<HTMLSpanElement>) {
+    const state = drag.current;
+    if (!state) return;
+    const patch = applyResize(state.handle, event.clientX - state.startX, state);
+    if (patch) setCustomWidths((current) => ({ ...current, ...patch }));
+  }
+
+  function endResize(event: ReactPointerEvent<HTMLSpanElement>) {
+    if (!drag.current) return;
+    drag.current = null;
+    document.body.classList.remove("resizing");
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  const resizer = (handle: ColumnHandle, label: string) => (
+    <span role="separator" aria-orientation="vertical" aria-label={label} title={`${label} · doppio click per autofit`} tabIndex={0}
+      className="git-col-resizer"
+      onPointerDown={(event) => beginResize(event, handle)}
+      onPointerMove={moveResize}
+      onPointerUp={endResize}
+      onPointerCancel={endResize}
+      onLostPointerCapture={() => { drag.current = null; document.body.classList.remove("resizing"); }}
+      onDoubleClick={(event) => { event.preventDefault(); setCustomWidths({}); }}
+      onKeyDown={(event: ReactKeyboardEvent<HTMLSpanElement>) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        resizeBy(handle, event.key === "ArrowLeft" ? -16 : 16);
+      }} />
+  );
 
   function toggleCommit(row: GraphRow) {
     const { hash } = row.commit;
@@ -108,12 +224,12 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
       : loading && !log ? <div className="git-history-empty" role="status">Lettura cronologia Git…</div>
       : !log || commitCount === 0 ? <div className="git-history-empty">Nessun commit da mostrare.</div>
       : <div className="scroll-area git-history-list" tabIndex={0} aria-label="Commit del repository">
-        <div className="git-history-table" role="table" style={{ "--graph-width": `${graphWidth}px` } as CSSProperties}>
+        <div className="git-history-table" role="table" style={tableStyle}>
           <div className="git-history-table-header" role="row">
-            <span role="columnheader">Grafo</span>
-            <span role="columnheader">Descrizione</span>
-            <span role="columnheader">Data</span>
-            <span role="columnheader">Autore</span>
+            <span role="columnheader">Grafo{resizer("graph", "Ridimensiona la colonna Grafo")}</span>
+            <span role="columnheader" ref={descriptionRef}>Descrizione{resizer("description", "Ridimensiona la colonna Descrizione")}</span>
+            <span role="columnheader">Data{resizer("date", "Ridimensiona la colonna Data")}</span>
+            <span role="columnheader">Autore{resizer("author", "Ridimensiona la colonna Autore")}</span>
             <span role="columnheader">Commit</span>
           </div>
           {layout.rows.map((row) => <Fragment key={row.commit.hash}>

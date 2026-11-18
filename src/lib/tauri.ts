@@ -94,6 +94,8 @@ export const api = {
     invoke<void>("git_take_side", { expectedWorkspace, path, side }),
   gitRevertFile: (expectedWorkspace: string, path: string) =>
     invoke<void>("git_revert_file", { expectedWorkspace, path }),
+  gitRevertAll: (expectedWorkspace: string) =>
+    invoke<void>("git_revert_all", { expectedWorkspace }),
   gitLog: (expectedWorkspace: string, limit: number) => invoke<GitLog>("git_log", { expectedWorkspace, limit }),
   gitCommitFiles: (expectedWorkspace: string, hash: string) => invoke<GitCommitFile[]>("git_commit_files", { expectedWorkspace, hash }),
   gitCommitFileDiff: (expectedWorkspace: string, hash: string, path: string, oldPath: string | null) =>

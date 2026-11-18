@@ -1,7 +1,8 @@
 import { lintGutter, setDiagnostics, type Diagnostic } from "@codemirror/lint";
-import { indentWithTab } from "@codemirror/commands";
+import { indentLess, indentMore } from "@codemirror/commands";
 import { hasNextSnippetField, hasPrevSnippetField, nextSnippetField, prevSnippetField } from "@codemirror/autocomplete";
-import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { getIndentUnit, indentString } from "@codemirror/language";
+import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension, type StateCommand } from "@codemirror/state";
 import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { useEffect, useRef, useState } from "react";
@@ -9,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { helmcodeTheme } from "../theme";
 import { getLanguageDescription, languageName } from "../lib/languages";
 import { externalTextChange, externalTextTransaction } from "../lib/editorChanges";
+import { wordHighlightExtension } from "../lib/editorHighlights";
 import { intelligenceExtension, navigateSymbol, syncIntelligence, type IntelligenceStatus, type NavigationKind, type NavigationTarget } from "../lib/intelligence";
 import type { LspDiagnostic, LspPosition, RevealRequest, Tab } from "../types";
 import { BrandMark } from "./BrandMark";
@@ -30,6 +32,17 @@ const symbolLinks = StateField.define<DecorationSet>({
   },
   provide: (field) => EditorView.decorations.from(field),
 });
+
+const toEditorCommand = (command: StateCommand) => (view: EditorView) =>
+  command({ state: view.state, dispatch: (transaction) => view.dispatch(transaction) });
+const indentSelection = toEditorCommand(indentMore);
+const unindentSelection = toEditorCommand(indentLess);
+
+const insertIndent = (view: EditorView) => {
+  if (view.state.selection.ranges.some((range) => !range.empty)) return indentSelection(view);
+  view.dispatch(view.state.replaceSelection(indentString(view.state, getIndentUnit(view.state))));
+  return true;
+};
 
 const navigationActions: { kind: NavigationKind; label: string; shortcut: string }[] = [
   { kind: "definition", label: "Vai alla definizione", shortcut: "F12" },
@@ -179,6 +192,7 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
 
     const extensions: Extension[] = [
       basicSetup,
+      wordHighlightExtension,
       helmcodeTheme,
       colorScheme.of(EditorView.darkTheme.of(document.documentElement.dataset.theme !== "light")),
       lintGutter(),
@@ -206,7 +220,7 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
       Prec.high(keymap.of([
         { key: "Tab", run: (view) => hasNextSnippetField(view.state) ? nextSnippetField(view) : false },
         { key: "Shift-Tab", run: (view) => hasPrevSnippetField(view.state) ? prevSnippetField(view) : false },
-        { ...indentWithTab, preventDefault: true },
+        { key: "Tab", run: insertIndent, shift: unindentSelection, preventDefault: true },
         { key: "F12", preventDefault: true, run: () => { navigateRef.current("definition"); return true; } },
         { key: "Mod-F12", preventDefault: true, run: () => { navigateRef.current("implementation"); return true; } },
         { key: "Mod-Shift-F12", preventDefault: true, run: () => { navigateRef.current("declaration"); return true; } },

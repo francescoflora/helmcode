@@ -413,15 +413,6 @@ export function CrosshairIcon({ className }: IconProps) {
   );
 }
 
-export function DiscardIcon({ className }: IconProps) {
-  return (
-    <svg {...base} className={className} aria-hidden="true">
-      <path d="M3 7v6h6" />
-      <path d="M3.5 13a9 9 0 1 0 2.4-9.3L3 7" />
-    </svg>
-  );
-}
-
 export function SaveIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">
