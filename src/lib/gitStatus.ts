@@ -1,4 +1,4 @@
-import type { GitChange } from "../types";
+import type { GitChange, GitStatus } from "../types";
 
 export type ChangeKind = "added" | "modified" | "deleted";
 
@@ -24,6 +24,11 @@ export function changeKind(change: Pick<GitChange, "label" | "untracked">): Chan
 
 export function mergeChangeKind(current: ChangeKind | undefined, next: ChangeKind): ChangeKind {
   return current && PRIORITY[current] >= PRIORITY[next] ? current : next;
+}
+
+/** True when the repository has work to commit, push or pull. */
+export function gitNeedsAttention(status: Pick<GitStatus, "changes" | "ahead" | "behind">): boolean {
+  return status.changes.length > 0 || status.ahead > 0 || status.behind > 0;
 }
 
 /** Build file and ancestor decorations. Explorer passes includeDeleted: false. */

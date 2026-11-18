@@ -246,7 +246,11 @@ try {
           }
           if (command === 'read_file_text') { if (!(args.path in files)) throw new Error('File unavailable'); if (window.__qaReadFile) return window.__qaReadFile(args.path, files[args.path]); return files[args.path]; }
           if (command === 'save_file') { if (window.__qaPauseNextSave) { window.__qaPauseNextSave = false; await new Promise(resolve => { window.__qaFinishSave = resolve; }); } files[args.path] = args.content; if (args.path === 'notes.unknown' && typeof window.__qaReplaceText === 'string') window.__qaReplaceText = args.content; if (!changes.some(c => c.path === args.path)) changes.push({ path: args.path, index: ' ', worktree: 'M', label: 'M', staged: false, untracked: false }); if (!window.__qaHoldSaveEvents) setTimeout(() => window.__qaEmit('fs-changed', { paths: [args.path] }), 10); return; }
-          if (command === 'git_status' || command === 'git_fetch') return { isRepo: true, branch, changes: changes.map(change => ({ ...change })), upstream: 'origin/' + branch, ahead: window.__qaAhead || 0, behind: window.__qaBehind || 0, merging: false };
+          if (command === 'git_fetch') {
+            if (window.__qaHoldGitFetch) await new Promise(resolve => { window.__qaGitFetchWaits = window.__qaGitFetchWaits || []; window.__qaGitFetchWaits.push(resolve); });
+            return { isRepo: true, branch, changes: changes.map(change => ({ ...change })), upstream: 'origin/' + branch, ahead: window.__qaAhead || 0, behind: window.__qaBehind || 0, merging: false };
+          }
+          if (command === 'git_status') return { isRepo: true, branch, changes: changes.map(change => ({ ...change })), upstream: 'origin/' + branch, ahead: window.__qaAhead || 0, behind: window.__qaBehind || 0, merging: false };
           if (command === 'git_branches') return [{ name: 'main', current: branch === 'main', remote: false, shortHash: 'aaaaaaa', author: 'Francesco Flora', date: '2026-11-12T10:30:00+01:00', subject: 'feat: grafo commit' }, { name: 'feature/clean-ui', current: branch === 'feature/clean-ui', remote: false, shortHash: 'bbbbbbb', author: 'Ada Lovelace', date: '2026-11-11T09:15:00+01:00', subject: 'fix: ramo feature' }, { name: 'origin/main', current: false, remote: true, shortHash: 'aaaaaaa', author: 'Francesco Flora', date: '2026-11-12T10:30:00+01:00', subject: 'feat: grafo commit' }];
           if (command === 'git_checkout') { branch = args.branch; return; }
           if (command === 'git_create_branch') {
@@ -266,6 +270,7 @@ try {
           if (command === 'git_commit_files') return [{ path: 'src/App.tsx', oldPath: null, status: 'M' }, { path: 'src/components/GitHistory.tsx', oldPath: 'src/components/GitGraph.tsx', status: 'R' }];
           if (command === 'git_commit_file_diff') return { lines: [{ kind: 'context', text: 'const isOpen = expanded.has(entry.path);', oldLine: 327, newLine: 327 }, { kind: 'remove', text: 'const before = entry;', oldLine: 328, newLine: null }, { kind: 'add', text: 'const before = leaf;', oldLine: null, newLine: 328 }], added: 1, removed: 1, isNew: false };
           if (command === 'git_log') {
+            if (window.__qaHoldGitLog) await new Promise(resolve => { window.__qaGitLogWaits = window.__qaGitLogWaits || []; window.__qaGitLogWaits.push(resolve); });
             const commit = (hash, shortHash, parents, author, email, date, subject, refs) => ({ hash, shortHash, parents, author, email, date, subject, refs });
             return {
               truncated: args.limit < 600,
@@ -544,8 +549,15 @@ try {
   assert.equal(await evaluate(`document.querySelector('.git-history')?.textContent.includes('Ada Lovelace') && document.querySelector('.git-history')?.textContent.includes('bbbbbbb') && document.querySelector('.git-history')?.textContent.includes('2026')`), true, 'Graph shows author, id and date');
   assert.equal(await evaluate(`document.querySelector('.git-ref.is-head')?.textContent === 'main' && document.querySelector('.git-ref.is-tag')?.textContent === 'v0.1.0'`), true, 'Graph shows branch and tag references');
   assert.equal(await evaluate(`document.querySelectorAll('.git-history-table-header [role="columnheader"]').length === 5 && Array.from(document.querySelectorAll('.git-history-table-header [role="columnheader"]')).map(cell => cell.textContent).join('|') === 'Grafo|Descrizione|Data|Autore|Commit'`), true, 'Graph uses table columns');
-  assert.equal(await evaluate(`document.querySelectorAll('.git-history-table-header .git-col-resizer').length === 4`), true, 'Graph columns expose resize handles');
+  assert.equal(await evaluate(`document.querySelectorAll('.git-history-table-header .git-col-resizer').length === 5`), true, 'Graph columns expose resize handles');
   assert.equal(await evaluate(`Array.from(document.querySelectorAll('.git-history-table-header [role="columnheader"]')).every(cell => cell.getBoundingClientRect().width > 0)`), true, 'Graph columns have positive widths');
+  const gitWidths = await evaluate(`Array.from(document.querySelectorAll('.git-history-table-header [role="columnheader"]')).map(cell => Math.round(cell.getBoundingClientRect().width))`);
+  await evaluate(`document.querySelectorAll('.git-history-table-header .git-col-resizer')[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))`);
+  await pause(60);
+  const gitWidthsAfterResize = await evaluate(`Array.from(document.querySelectorAll('.git-history-table-header [role="columnheader"]')).map(cell => Math.round(cell.getBoundingClientRect().width))`);
+  assert.equal(gitWidthsAfterResize[2], gitWidths[2] + 16, 'Resizing a Git column changes only that column');
+  assert.equal(gitWidthsAfterResize[3], gitWidths[3], 'Resizing a Git column leaves the next column unchanged');
+  assert.equal(gitWidthsAfterResize[1], gitWidths[1], 'Resizing a Git column pins the flexible description width');
   assert.equal(await evaluate(`(() => { const cell = document.querySelector('.git-history-graph'); const svg = cell?.querySelector('svg'); return !!svg && svg.getBoundingClientRect().width <= cell.getBoundingClientRect().width + 1; })()`), true, 'Graph fits its column');
   assert.equal(await evaluate(`document.querySelectorAll('.git-history-graph svg').length === 3 && document.querySelectorAll('.git-history-graph circle').length === 3 && document.querySelectorAll('.git-history-graph path, .git-history-graph line').length > 3`), true, 'Graph renders SVG nodes and lanes');
   assert.equal(await evaluate(`document.querySelector('.git-history-graph')?.textContent.trim() === ''`), true, 'Graph has no ASCII lane text');
@@ -565,6 +577,14 @@ try {
   await until(`!document.querySelector('.git-commit-files')`, 'Clicking the expanded commit collapses it');
   await evaluate(`document.querySelector('.git-history-more button').click()`);
   await until(`window.__qaCalls.filter(c => c.command === 'git_log').at(-1).args.limit === 600 && !document.querySelector('.git-history-more')`, 'Graph loads additional commits');
+  await evaluate(`window.__qaHoldGitFetch = true; window.__qaGitFetchWaits = []; window.__qaHoldGitLog = true; window.__qaGitLogWaits = []; document.querySelector('button[aria-label="Sincronizza repository"]').click()`);
+  await until(`window.__qaGitFetchWaits.length > 0 && window.__qaGitLogWaits.length > 0`, 'Git status and graph refresh start together');
+  assert.equal(await evaluate(`document.querySelector('.statusbar .status-sync svg')?.classList.contains('animate-spin-reverse') && document.querySelector('.git-history-header button[aria-label="Ricarica grafo Git"] svg')?.classList.contains('animate-spin-reverse')`), true, 'Both Git indicators spin together');
+  await evaluate(`window.__qaGitFetchWaits.forEach(resolve => resolve()); window.__qaGitFetchWaits = []`);
+  await pause(80);
+  assert.equal(await evaluate(`document.querySelector('.statusbar .status-sync svg')?.classList.contains('animate-spin-reverse') && document.querySelector('.git-history-header button[aria-label="Ricarica grafo Git"] svg')?.classList.contains('animate-spin-reverse')`), true, 'Status indicator waits for the graph refresh');
+  await evaluate(`window.__qaHoldGitFetch = false; window.__qaHoldGitLog = false; (window.__qaGitLogWaits || []).forEach(resolve => resolve()); window.__qaGitLogWaits = []`);
+  await until(`!document.querySelector('.statusbar .status-sync svg')?.classList.contains('animate-spin-reverse') && !document.querySelector('.git-history-header button[aria-label="Ricarica grafo Git"] svg')?.classList.contains('animate-spin-reverse')`, 'Both Git indicators stop after both updates finish');
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await pause(150);
@@ -584,6 +604,7 @@ try {
   await until(`document.querySelector('.build-history select')?.textContent.includes('Completato')`, 'build retained across views');
   await screenshot('build.png');
   assert.equal(await evaluate(`!!document.querySelector('.statusbar .branch-picker-badge')`), true, 'Dirty repository keeps its attention marker');
+  assert.equal(await evaluate(`!!document.querySelector('.statusbar .status-branch-badge')`), true, 'Branch icon shows the attention badge');
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('.tree-row[aria-current="true"]')).boxShadow`), 'none', 'Selected file has no left stroke');
   await evaluate(`window.__qaAhead = 2; window.__qaBehind = 1; document.querySelector('button[aria-label="Sincronizza repository"]').click()`);
   await until(`document.querySelector('.statusbar .status-sync')?.textContent.includes('↑2')`, 'Remote update counts appear after fetch');
@@ -675,6 +696,7 @@ try {
   await until(`!document.querySelector('.cm-content').textContent.includes('kept while parser loads')`, 'Undo history survives lazy parser load');
   await openFixture('app.py', 'def greet');
   await until(`!!document.querySelector('[data-language="Python"]')`, 'Python parser installed');
+  await until(`Array.from(document.querySelectorAll('.cm-indent-markers')).some(line => getComputedStyle(line, '::before').backgroundImage.includes('repeating-linear-gradient'))`, 'Indentation guides render in the editor');
   await until(`window.__qaTokenColor('def') && window.__qaTokenColor('"Hello"')`, 'Python highlighted');
   assert.equal(await evaluate(`window.__qaTokenColor('def') !== window.__qaTokenColor('"Hello"')`), true, 'Python keyword and string colors differ');
   await openFixture('config.yaml', 'greeting:');

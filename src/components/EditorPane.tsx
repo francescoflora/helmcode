@@ -5,6 +5,7 @@ import { getIndentUnit, indentString } from "@codemirror/language";
 import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension, type StateCommand } from "@codemirror/state";
 import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
 import { basicSetup } from "codemirror";
+import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { useEffect, useRef, useState } from "react";
 
 import { helmcodeTheme } from "../theme";
@@ -192,6 +193,19 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
 
     const extensions: Extension[] = [
       basicSetup,
+      indentationMarkers({
+        highlightActiveBlock: true,
+        hideFirstIndent: true,
+        markerType: "fullScope",
+        thickness: 1,
+        activeThickness: 1,
+        colors: {
+          light: "var(--editor-indent-guide)",
+          dark: "var(--editor-indent-guide)",
+          activeLight: "var(--editor-indent-guide-active)",
+          activeDark: "var(--editor-indent-guide-active)",
+        },
+      }),
       wordHighlightExtension,
       helmcodeTheme,
       colorScheme.of(EditorView.darkTheme.of(document.documentElement.dataset.theme !== "light")),

@@ -1,7 +1,7 @@
 {
   "name": "helmcode",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Editor desktop per Windows che unisce AI, codice e Git in un'unica interfaccia.",
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -37,6 +37,7 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
     "@lezer/highlight": "^1.2.5",
+    "@replit/codemirror-indentation-markers": "^6.5.3",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-opener": "^2.7.3",
     "@tauri-apps/plugin-process": "^2.4.0",

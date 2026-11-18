@@ -30,14 +30,7 @@ export function autoFitGitColumns(
   };
 }
 
-/** Split a delta between adjacent columns while preserving their total width. */
-export function splitColumnWidth(
-  left: number,
-  right: number,
-  delta: number,
-  leftMin: number,
-  rightMin: number,
-): { left: number; right: number } {
-  const nextLeft = Math.round(Math.min(left + Math.max(0, right - rightMin), Math.max(leftMin, left + delta)));
-  return { left: nextLeft, right: right + left - nextLeft };
+/** Resize one column independently, clamping only to its own minimum width. */
+export function resizeColumnWidth(width: number, delta: number, minWidth: number): number {
+  return Math.max(minWidth, Math.round(width + delta));
 }

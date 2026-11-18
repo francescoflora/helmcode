@@ -88,6 +88,8 @@ button, input, select { transition: background-color 120ms, color 120ms, border-
 .agent-loading-title { color: var(--text); font-size: 16px; font-weight: 600; }
 .agent-loading-description { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 @keyframes agent-loading-spin { to { transform: rotate(360deg); } }
+@keyframes spin-reverse { to { transform: rotate(-360deg); } }
+.animate-spin-reverse { animation: spin-reverse 1s linear infinite; }
 .ai-restart { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--color-elevated); padding: 10px 16px; color: var(--secondary); font-size: 12px; }
 .activity-bar { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; width: 48px; gap: 8px; padding-top: 10px; background: var(--chrome); border-right: 1px solid var(--border); }
 .activity-button { position: relative; display: grid; place-items: center; width: 40px; height: 40px; color: var(--secondary); border-radius: 7px; }
@@ -181,13 +183,15 @@ button, input, select { transition: background-color 120ms, color 120ms, border-
 .git-history-table {
   --git-graph-width: 40px;
   --git-description-min: 180px;
+  --git-description-width: 180px;
+  --git-description-max: 1fr;
   --git-date-width: 150px;
   --git-author-width: 140px;
   --git-hash-width: 86px;
   display: flex; flex-direction: column;
-  min-width: max(760px, calc(var(--git-graph-width) + var(--git-description-min) + var(--git-date-width) + var(--git-author-width) + var(--git-hash-width) + 76px));
+  min-width: max(760px, calc(var(--git-graph-width) + var(--git-description-width) + var(--git-date-width) + var(--git-author-width) + var(--git-hash-width) + 76px));
 }
-.git-history-table-header, .git-history-row { display: grid; grid-template-columns: var(--git-graph-width) minmax(var(--git-description-min), 1fr) var(--git-date-width) var(--git-author-width) var(--git-hash-width); align-items: center; column-gap: 12px; padding: 0 14px; }
+.git-history-table-header, .git-history-row { display: grid; grid-template-columns: var(--git-graph-width) minmax(var(--git-description-min), var(--git-description-max, 1fr)) var(--git-date-width) var(--git-author-width) var(--git-hash-width); align-items: center; column-gap: 12px; padding: 0 14px; }
 .git-history-table-header > [role="columnheader"] { position: relative; }
 .git-col-resizer { position: absolute; top: 0; right: -6px; z-index: 1; width: 12px; height: 30px; cursor: col-resize; touch-action: none; }
 .git-col-resizer::after { position: absolute; content: ""; top: 6px; bottom: 6px; left: 5px; width: 1px; background: var(--border); opacity: 0; transition: opacity .1s ease; }
@@ -243,6 +247,7 @@ kbd { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 .status-item:hover { color: var(--statusbar-hover-foreground); background: var(--statusbar-hover-background); }
 .status-item > svg, .status-branch-icon > svg { display: block; width: 16px; height: 16px; flex-shrink: 0; color: inherit; }
 .status-branch-icon { position: relative; display: inline-flex; }
+.status-branch-badge { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 10px; height: 10px; border-radius: 50%; background: var(--statusbar-foreground); color: var(--chrome); font: 700 9px/1 var(--font-sans); box-shadow: 0 0 0 1.5px var(--chrome); }
 .status-problems { gap: 0; font-variant-numeric: tabular-nums; }
 .status-problems > span { margin-left: 2px; }
 .status-problems > svg:not(:first-child) { margin-left: 3px; }
@@ -588,6 +593,7 @@ button, input, select { letter-spacing: .005em; }
 .file-breadcrumb { height: 32px; font-size: 11px; background: var(--color-canvas); }
 .status-sync-wrap { position: relative; display: inline-flex; height: 100%; }
 .status-sync-count { color: inherit; font-variant-numeric: tabular-nums; }
+.status-sync > svg + .status-sync-count { margin-left: 3px; }
 .branch-picker.is-status .branch-picker-label { max-width: 220px; color: inherit; }
 .branch-picker-chevron { color: var(--muted); opacity: .7; }
 .branch-picker-badge { font-size: inherit; color: inherit; font-weight: inherit; margin-left: 1px; transform: none; }

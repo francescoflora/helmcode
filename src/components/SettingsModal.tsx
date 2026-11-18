@@ -16,7 +16,7 @@ export function SettingsModal({ prefs, onChange, onReset, onClose }: Props) {
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-[var(--text)]">Impostazioni</h2>
-            <p className="mt-1 text-[13px] text-[var(--secondary)]">Aspetto, avvio e aggiornamenti.</p>
+            <p className="mt-1 text-[13px] text-[var(--secondary)]">Aspetto, avvio, chiusura e aggiornamenti.</p>
           </div>
           <button type="button" className="icon-button" title="Chiudi" aria-label="Chiudi" onClick={onClose}>
             <XIcon className="h-4.5 w-4.5" />
@@ -53,6 +53,10 @@ export function SettingsModal({ prefs, onChange, onReset, onClose }: Props) {
           <label className="check-row">
             <input type="checkbox" checked={prefs.autoOpenLast} onChange={(event) => onChange({ autoOpenLast: event.target.checked })} />
             <span>Apri l'ultimo progetto all'avvio</span>
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={prefs.confirmClose} onChange={(event) => onChange({ confirmClose: event.target.checked })} />
+            <span>Chiedi conferma prima di chiudere la finestra</span>
           </label>
         </section>
 

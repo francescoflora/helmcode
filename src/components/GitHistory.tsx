@@ -1,23 +1,31 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { autoFitGitColumns, DESCRIPTION_MIN_WIDTH, GIT_COLUMN_BOUNDS, splitColumnWidth } from "../lib/gitColumns";
+import { autoFitGitColumns, DESCRIPTION_MIN_WIDTH, GIT_COLUMN_BOUNDS, resizeColumnWidth } from "../lib/gitColumns";
 import { graphColumnWidth, LANE_WIDTH, layoutCommitGraph, laneColor, type GraphRow } from "../lib/gitGraph";
 import { api } from "../lib/tauri";
 import type { GitCommitFile, GitLog } from "../types";
 import { CommitDiff } from "./CommitDiff";
 import { FileTypeIcon } from "./FileTypeIcon";
-import { CloudIcon, GitBranchIcon, RefreshIcon, TagIcon, TargetIcon } from "./Icons";
+import { CloudIcon, CopyIcon, GitBranchIcon, RefreshIcon, TagIcon, TargetIcon } from "./Icons";
 
 const PAGE_SIZE = 300;
 const MAX_COMMITS = 2000;
 const ROW_HEIGHT = 30;
 const laneStroke = (lane: number) => `var(--git-lane-${lane % 12}, ${laneColor(lane)})`;
-type Props = { workspace: string; version: number; onCherryPick: (hash: string) => void | Promise<void> };
+type Props = {
+  workspace: string;
+  version: number;
+  refreshToken: number;
+  busy: boolean;
+  onBusyChange: (busy: boolean) => void;
+  onCherryPick: (hash: string) => void | Promise<void>;
+  onNotify: (message: string) => void;
+};
 type SelectedFile = { hash: string; shortHash: string; path: string; oldPath: string | null };
 type RefKind = "head" | "local" | "remote" | "tag";
 type CommitMenu = { hash: string; shortHash: string; x: number; y: number };
-type ColumnHandle = "graph" | "description" | "date" | "author";
-type CustomWidths = { graph?: number; date?: number; author?: number; hash?: number };
-type DragState = { handle: ColumnHandle; startX: number; left: number; right: number };
+type ColumnHandle = "graph" | "description" | "date" | "author" | "hash";
+type CustomWidths = { graph?: number; description?: number; date?: number; author?: number; hash?: number };
+type DragState = { handle: ColumnHandle; startX: number; startWidth: number };
 
 const SANS_FONT = '11px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif';
 const MONO_FONT = '11px "Cascadia Code", "Consolas", ui-monospace, monospace';
@@ -55,7 +63,7 @@ function RefIcon({ kind }: { kind: RefKind }) {
   return <GitBranchIcon className={className} />;
 }
 
-export function GitHistory({ workspace, version, onCherryPick }: Props) {
+export function GitHistory({ workspace, version, refreshToken, busy, onBusyChange, onCherryPick, onNotify }: Props) {
   const [log, setLog] = useState<GitLog | null>(null);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(true);
@@ -69,6 +77,7 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
   const [menu, setMenu] = useState<CommitMenu | null>(null);
   const [customWidths, setCustomWidths] = useState<CustomWidths>(() => sessionWidths);
   const filesRequest = useRef(0);
+  const logRequest = useRef(0);
   const drag = useRef<DragState | null>(null);
   const descriptionRef = useRef<HTMLSpanElement | null>(null);
 
@@ -77,17 +86,24 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
   }, [customWidths]);
 
   useEffect(() => () => { document.body.classList.remove("resizing"); }, []);
+  useEffect(() => () => onBusyChange(false), [onBusyChange]);
 
   useEffect(() => {
+    const request = ++logRequest.current;
     let cancelled = false;
     setLoading(true);
+    onBusyChange(true);
     setError(null);
     api.gitLog(workspace, limit)
       .then((value) => { if (!cancelled) setLog(value); })
       .catch((reason: unknown) => { if (!cancelled) setError(String(reason)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => {
+        if (cancelled || request !== logRequest.current) return;
+        setLoading(false);
+        onBusyChange(false);
+      });
     return () => { cancelled = true; };
-  }, [workspace, version, limit, reload]);
+  }, [workspace, version, refreshToken, limit, reload, onBusyChange]);
 
   useEffect(() => {
     if (!menu) return;
@@ -114,50 +130,47 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
   const tableStyle = {
     "--git-graph-width": `${graphWidth}px`,
     "--git-description-min": `${DESCRIPTION_MIN_WIDTH}px`,
+    "--git-description-width": `${customWidths.description ?? DESCRIPTION_MIN_WIDTH}px`,
+    "--git-description-max": customWidths.description === undefined ? "1fr" : `${customWidths.description}px`,
     "--git-date-width": `${dateWidth}px`,
     "--git-author-width": `${authorWidth}px`,
     "--git-hash-width": `${hashWidth}px`,
   } as CSSProperties;
   const commitCount = log?.commits.length ?? 0;
 
-  const descriptionWidth = () => descriptionRef.current?.getBoundingClientRect().width ?? 0;
+  const descriptionWidth = () => descriptionRef.current?.getBoundingClientRect().width || DESCRIPTION_MIN_WIDTH;
 
-  function currentStart(handle: ColumnHandle): { left: number; right: number } {
-    const description = descriptionWidth();
-    if (handle === "graph") return { left: graphWidth, right: description };
-    if (handle === "description") return { left: description, right: dateWidth };
-    if (handle === "date") return { left: dateWidth, right: authorWidth };
-    return { left: authorWidth, right: hashWidth };
+  function minimumWidth(handle: ColumnHandle): number {
+    if (handle === "graph") return autoGraphWidth;
+    if (handle === "description") return DESCRIPTION_MIN_WIDTH;
+    return GIT_COLUMN_BOUNDS[handle].min;
   }
 
-  function applyResize(handle: ColumnHandle, delta: number, start: { left: number; right: number }): CustomWidths | null {
-    if (start.left <= 0 || start.right <= 0) return null;
-    if (handle === "graph") {
-      const result = splitColumnWidth(start.left, start.right, delta, autoGraphWidth, DESCRIPTION_MIN_WIDTH);
-      return { graph: result.left };
-    }
-    if (handle === "description") {
-      const result = splitColumnWidth(start.left, start.right, delta, DESCRIPTION_MIN_WIDTH, GIT_COLUMN_BOUNDS.date.min);
-      return { date: result.right };
-    }
-    if (handle === "date") {
-      const result = splitColumnWidth(start.left, start.right, delta, GIT_COLUMN_BOUNDS.date.min, GIT_COLUMN_BOUNDS.author.min);
-      return { date: result.left, author: result.right };
-    }
-    const result = splitColumnWidth(start.left, start.right, delta, GIT_COLUMN_BOUNDS.author.min, GIT_COLUMN_BOUNDS.hash.min);
-    return { author: result.left, hash: result.right };
+  function columnWidth(handle: ColumnHandle): number {
+    if (handle === "graph") return graphWidth;
+    if (handle === "description") return descriptionWidth();
+    if (handle === "date") return dateWidth;
+    if (handle === "author") return authorWidth;
+    return hashWidth;
+  }
+
+  function pinDescription() {
+    setCustomWidths((current) => current.description === undefined
+      ? { ...current, description: Math.round(descriptionWidth()) }
+      : current);
   }
 
   function resizeBy(handle: ColumnHandle, delta: number) {
-    const patch = applyResize(handle, delta, currentStart(handle));
-    if (patch) setCustomWidths((current) => ({ ...current, ...patch }));
+    const width = resizeColumnWidth(columnWidth(handle), delta, minimumWidth(handle));
+    pinDescription();
+    setCustomWidths((current) => ({ ...current, [handle]: width }));
   }
 
   function beginResize(event: ReactPointerEvent<HTMLSpanElement>, handle: ColumnHandle) {
     if (event.button !== 0) return;
-    const start = currentStart(handle);
-    if (start.left <= 0 || start.right <= 0) return;
-    drag.current = { handle, startX: event.clientX, ...start };
+    const startWidth = columnWidth(handle);
+    pinDescription();
+    drag.current = { handle, startX: event.clientX, startWidth };
     event.currentTarget.setPointerCapture(event.pointerId);
     event.preventDefault();
     document.body.classList.add("resizing");
@@ -166,8 +179,8 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
   function moveResize(event: ReactPointerEvent<HTMLSpanElement>) {
     const state = drag.current;
     if (!state) return;
-    const patch = applyResize(state.handle, event.clientX - state.startX, state);
-    if (patch) setCustomWidths((current) => ({ ...current, ...patch }));
+    const width = resizeColumnWidth(state.startWidth, event.clientX - state.startX, minimumWidth(state.handle));
+    setCustomWidths((current) => ({ ...current, [state.handle]: width }));
   }
 
   function endResize(event: ReactPointerEvent<HTMLSpanElement>) {
@@ -193,6 +206,15 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
       }} />
   );
 
+  async function copyHash(hash: string) {
+    try {
+      await navigator.clipboard.writeText(hash);
+      onNotify("Hash copiato");
+    } catch {
+      onNotify("Impossibile copiare l'hash");
+    }
+  }
+
   function toggleCommit(row: GraphRow) {
     const { hash } = row.commit;
     if (expanded === hash) {
@@ -215,8 +237,8 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
       <GitBranchIcon className="h-4.5 w-4.5 text-[var(--accent)]" />
       <span className="git-history-title">Grafo dei commit</span>
       <span className="git-history-count">{commitCount} commit · tutti i branch e tag</span>
-      <button type="button" className="icon-button ml-auto" onClick={() => setReload((value) => value + 1)} aria-label="Ricarica grafo Git" title="Ricarica grafo Git">
-        <RefreshIcon className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+      <button type="button" className="icon-button ml-auto" onClick={() => setReload((value) => value + 1)} aria-label="Ricarica grafo Git" aria-busy={busy || loading} title="Ricarica grafo Git">
+        <RefreshIcon className={`h-4 w-4 ${busy || loading ? "animate-spin-reverse" : ""}`} />
       </button>
     </header>
     {error && <div role="alert" className="git-history-error">{error}</div>}
@@ -230,7 +252,7 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
             <span role="columnheader" ref={descriptionRef}>Descrizione{resizer("description", "Ridimensiona la colonna Descrizione")}</span>
             <span role="columnheader">Data{resizer("date", "Ridimensiona la colonna Data")}</span>
             <span role="columnheader">Autore{resizer("author", "Ridimensiona la colonna Autore")}</span>
-            <span role="columnheader">Commit</span>
+            <span role="columnheader">Commit{resizer("hash", "Ridimensiona la colonna Commit")}</span>
           </div>
           {layout.rows.map((row) => <Fragment key={row.commit.hash}>
             <CommitRow row={row} width={graphWidth} remotes={log?.remotes ?? []} expanded={expanded === row.commit.hash}
@@ -259,6 +281,10 @@ export function GitHistory({ workspace, version, onCherryPick }: Props) {
     {menu && <>
       <div className="commit-context-backdrop" onClick={() => setMenu(null)} onContextMenu={(event) => { event.preventDefault(); setMenu(null); }} />
       <div className="explorer-context-menu" role="menu" aria-label={`Azioni per il commit ${menu.shortHash}`} style={{ left: menu.x, top: menu.y }}>
+        <button type="button" role="menuitem" onClick={() => { const hash = menu.hash; setMenu(null); void copyHash(hash); }}>
+          <CopyIcon className="h-4 w-4" />
+          <span>Copia hash</span>
+        </button>
         <button type="button" role="menuitem" onClick={() => { const hash = menu.hash; setMenu(null); void onCherryPick(hash); }}>
           <GitBranchIcon className="h-4 w-4" />
           <span>Cherry-pick sul branch corrente</span>

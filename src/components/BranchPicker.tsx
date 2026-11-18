@@ -12,6 +12,7 @@ type Props = {
   variant: "panel" | "status";
   disabled?: boolean;
   hasChanges?: boolean;
+  attention?: boolean;
   onBeforeCheckout?: () => boolean | Promise<boolean>;
   onSaveAll?: () => Promise<boolean>;
   onNotify?: (message: string) => void;
@@ -20,7 +21,7 @@ type Props = {
   className?: string;
 };
 
-export function BranchPicker({ workspace, version, current, variant, disabled, hasChanges, onBeforeCheckout, onSaveAll, onNotify, onChanged, badge, className }: Props) {
+export function BranchPicker({ workspace, version, current, variant, disabled, hasChanges, attention, onBeforeCheckout, onSaveAll, onNotify, onChanged, badge, className }: Props) {
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -85,10 +86,15 @@ export function BranchPicker({ workspace, version, current, variant, disabled, h
   return (
     <div ref={rootRef} className={`branch-picker ${variant === "status" ? "is-status" : ""} ${className ?? ""}`.trim()}>
       <button ref={triggerRef} type="button" disabled={busy} aria-haspopup="menu" aria-expanded={open}
-        title="Passa a un branch locale o remoto" aria-label={`Branch Git attuale: ${label}${badge ? ". Modifiche non committate" : ""}. Seleziona un branch`}
+        title="Passa a un branch locale o remoto" aria-label={`Branch Git attuale: ${label}${attention ? ". Modifiche o commit da sincronizzare" : ""}. Seleziona un branch`}
         onClick={() => setOpen((value) => !value)}
         className={`branch-picker-trigger ${variant === "status" ? "status-item" : ""}`.trim()}>
-        {variant === "status" ? <StatusBranchIcon /> : <GitBranchIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />}
+        {variant === "status" ? (
+          <span className="status-branch-icon">
+            <StatusBranchIcon />
+            {attention && <span className="status-branch-badge" aria-hidden="true">*</span>}
+          </span>
+        ) : <GitBranchIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />}
         <span className="branch-picker-label">{label}{badge && <span className="branch-picker-badge" aria-hidden="true">{badge}</span>}</span>
         {variant !== "status" && <ChevronRightIcon className="branch-picker-chevron h-3 w-3 shrink-0 rotate-90" />}
       </button>
