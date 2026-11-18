@@ -1,5 +1,5 @@
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, type CloseRequestedEvent } from "@tauri-apps/api/window";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { isTauri } from "./tauri";
@@ -46,6 +46,10 @@ export function toggleMaximizeWindow(): Promise<void> {
 
 export function closeWindow(): Promise<void> {
   return getCurrentWindow().close();
+}
+
+export function onCloseRequested(handler: (event: CloseRequestedEvent) => void): Promise<UnlistenFn> {
+  return getCurrentWindow().onCloseRequested(handler);
 }
 
 export function startResize(direction: ResizeDirection): Promise<void> {

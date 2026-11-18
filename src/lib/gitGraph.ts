@@ -15,7 +15,15 @@ export const GRAPH_COLORS = [
   "#f2a7d8", "#8fd3f4", "#b9e88f", "#f0b37e", "#a9b8f5", "#d6a6f2",
 ];
 
+export const LANE_WIDTH = 18;
+
 export const laneColor = (lane: number) => GRAPH_COLORS[lane % GRAPH_COLORS.length];
+
+/** Width needed to draw every lane with its node and a small right margin. */
+export function graphColumnWidth(lanes: number): number {
+  const count = Math.max(1, Math.floor(lanes));
+  return Math.max(40, Math.ceil(12 + (count - 1) * LANE_WIDTH + 4 + 8));
+}
 
 /** Assign a stable lane to every commit, following parents into the rows below. */
 export function layoutCommitGraph(commits: GitCommit[]): GraphLayout {

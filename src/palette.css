@@ -27,6 +27,11 @@
   --scroll-active: #808080;
   --editor-active-line: #ffffff04;
   --selection: #ffffff1a;
+  --editor-selection: #264f78;
+  --editor-selection-inactive: #3a3d41;
+  --editor-occurrence: #8dbcf033;
+  --editor-occurrence-main: #8dbcf04d;
+  --editor-occurrence-border: #8dbcf066;
   --search-match: #649bd63b;
   --search-match-border: #649bd67a;
   --syntax-keyword: #c9b1ec;
@@ -82,6 +87,11 @@
   --scroll-active: #787878;
   --editor-active-line: #00000007;
   --selection: #00000014;
+  --editor-selection: #add6ff;
+  --editor-selection-inactive: #e5ebf1;
+  --editor-occurrence: #326cad26;
+  --editor-occurrence-main: #326cad40;
+  --editor-occurrence-border: #326cad59;
   --search-match: #cda54538;
   --search-match-border: #9b742e73;
   --syntax-keyword: #7751a0;

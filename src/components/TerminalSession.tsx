@@ -280,8 +280,8 @@ export const TerminalSession = memo(function TerminalSession({ tab, active, onEx
   }, [active, tab.id, loading]);
 
   return (
-    <div className="terminal-session" aria-busy={loading}>
-      <div ref={hostRef} className="h-full w-full overflow-hidden px-4 py-3" aria-hidden={loading || undefined} inert={loading} />
+    <div className="terminal-session px-4 py-3" aria-busy={loading}>
+      <div ref={hostRef} className="h-full w-full overflow-hidden" aria-hidden={loading || undefined} inert={loading} />
       {loading && <AgentLoading />}
     </div>
   );

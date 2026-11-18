@@ -518,6 +518,17 @@ pub fn revert_file(workspace: &Path, path: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn revert_all(workspace: &Path) -> Result<()> {
+    if run(workspace, &["rev-parse", "--verify", "HEAD"]).is_ok() {
+        run(workspace, &["reset", "-q", "HEAD", "--", "."])?;
+        run(workspace, &["checkout", "--", "."])?;
+    } else {
+        let _ = run(workspace, &["rm", "--cached", "-r", "--force", "--", "."]);
+    }
+    run(workspace, &["clean", "-fd", "--", "."])?;
+    Ok(())
+}
+
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 fn validate_commit(hash: &str) -> Result<()> {
@@ -671,6 +682,12 @@ pub async fn git_cherry_pick(state: State<'_, AppState>, expected_workspace: Str
 pub async fn git_revert_file(state: State<'_, AppState>, expected_workspace: String, path: String) -> Result<(), String> {
     let root = checked_workspace(&state, &expected_workspace)?;
     tauri::async_runtime::spawn_blocking(move || revert_file(&root, &path)).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn git_revert_all(state: State<'_, AppState>, expected_workspace: String) -> Result<(), String> {
+    let root = checked_workspace(&state, &expected_workspace)?;
+    tauri::async_runtime::spawn_blocking(move || revert_all(&root)).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -899,7 +916,7 @@ fn run(workspace: &Path, args: &[&str]) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{abort_merge, branches, build_diff, checkout, cherry_pick, commit, commit_file_diff, commit_files, complete_merge, create_branch, file_diff, log, merge, parse_log, parse_status_v2_z, parse_status_z, pull, push, resolve_conflict, revert_file, run, status, take_side};
+    use super::{abort_merge, branches, build_diff, checkout, cherry_pick, commit, commit_file_diff, commit_files, complete_merge, create_branch, file_diff, log, merge, parse_log, parse_status_v2_z, parse_status_z, pull, push, resolve_conflict, revert_all, revert_file, run, status, take_side};
     use std::fs;
     use std::path::PathBuf;
 
@@ -1362,6 +1379,32 @@ mod tests {
         run(&repo.0, &["add", "staged.txt"]).unwrap();
         revert_file(&repo.0, "staged.txt").unwrap();
         assert!(!repo.0.join("staged.txt").exists());
+        assert!(status(&repo.0).changes.is_empty());
+    }
+
+    #[test]
+    fn revert_all_restores_tracked_and_removes_untracked_changes() {
+        let repo = Repository::new();
+        fs::write(repo.0.join("tracked.txt"), "base\n").unwrap();
+        fs::write(repo.0.join("deleted.txt"), "keep\n").unwrap();
+        fs::write(repo.0.join(".gitignore"), "ignored.txt\n").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+        run(&repo.0, &["commit", "-m", "initial"]).unwrap();
+
+        fs::write(repo.0.join("tracked.txt"), "dirty\n").unwrap();
+        fs::remove_file(repo.0.join("deleted.txt")).unwrap();
+        fs::write(repo.0.join("staged.txt"), "staged\n").unwrap();
+        run(&repo.0, &["add", "staged.txt"]).unwrap();
+        fs::write(repo.0.join("untracked.txt"), "new\n").unwrap();
+        fs::write(repo.0.join("ignored.txt"), "keep\n").unwrap();
+        assert!(!status(&repo.0).changes.is_empty());
+
+        revert_all(&repo.0).unwrap();
+        assert_eq!(fs::read_to_string(repo.0.join("tracked.txt")).unwrap().replace("\r\n", "\n"), "base\n");
+        assert_eq!(fs::read_to_string(repo.0.join("deleted.txt")).unwrap().replace("\r\n", "\n"), "keep\n");
+        assert!(!repo.0.join("staged.txt").exists());
+        assert!(!repo.0.join("untracked.txt").exists());
+        assert_eq!(fs::read_to_string(repo.0.join("ignored.txt")).unwrap(), "keep\n");
         assert!(status(&repo.0).changes.is_empty());
     }
 
