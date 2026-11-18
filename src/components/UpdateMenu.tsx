@@ -190,7 +190,7 @@ function UpdateBody({
   if (status === "ready") {
     return (
       <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-xs font-medium text-emerald-300">
-        <CheckIcon className="h-4 w-4 shrink-0" /> Aggiornamento completato. Riavvio in corso…
+        <CheckIcon className="h-4 w-4 shrink-0" /> Download completato. Installazione e riavvio…
       </div>
     );
   }
