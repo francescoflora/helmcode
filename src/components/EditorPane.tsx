@@ -1,7 +1,7 @@
 import { lintGutter, setDiagnostics, type Diagnostic } from "@codemirror/lint";
 import { indentLess, indentMore } from "@codemirror/commands";
 import { hasNextSnippetField, hasPrevSnippetField, nextSnippetField, prevSnippetField } from "@codemirror/autocomplete";
-import { getIndentUnit, indentString } from "@codemirror/language";
+import { getIndentUnit, indentString, indentUnit } from "@codemirror/language";
 import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension, type StateCommand } from "@codemirror/state";
 import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
 import { basicSetup } from "codemirror";
@@ -9,7 +9,7 @@ import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { useEffect, useRef, useState } from "react";
 
 import { helmcodeTheme } from "../theme";
-import { getLanguageDescription, languageName } from "../lib/languages";
+import { detectIndentUnit, getLanguageDescription, languageName } from "../lib/languages";
 import { externalTextChange, externalTextTransaction } from "../lib/editorChanges";
 import { wordHighlightExtension } from "../lib/editorHighlights";
 import { intelligenceExtension, navigateSymbol, syncIntelligence, type IntelligenceStatus, type NavigationKind, type NavigationTarget } from "../lib/intelligence";
@@ -193,6 +193,7 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
 
     const extensions: Extension[] = [
       basicSetup,
+      indentUnit.of(detectIndentUnit(tab.content)),
       indentationMarkers({
         highlightActiveBlock: true,
         hideFirstIndent: true,

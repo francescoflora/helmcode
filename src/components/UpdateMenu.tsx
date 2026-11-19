@@ -46,7 +46,7 @@ export function UpdateMenu({ autoCheck, hasUnsavedChanges, onSaveAll }: Props) {
       <div className="toolbar-menu relative flex self-stretch items-stretch">
         <button
           type="button"
-          className={`toolbar-icon-button ${open || available ? "is-active" : ""}`}
+          className={`toolbar-icon-button ${open ? "is-active" : ""}`}
           onClick={() => setOpen((value) => !value)}
           title="Controlla aggiornamenti"
           aria-label="Controlla aggiornamenti"

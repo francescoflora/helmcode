@@ -42,3 +42,14 @@ export function getLanguageDescription(path: string): LanguageDescription | null
 export function languageName(path: string): string {
   return getLanguageDescription(path)?.name ?? "Testo semplice";
 }
+
+// ponytail: smallest indent wins; upgrade to a histogram if mixed files misalign.
+export function detectIndentUnit(text: string): string {
+  let spaces = Infinity;
+  for (const line of text.split("\n")) {
+    if (/^\t+\S/.test(line)) return "\t";
+    const match = /^( +)\S/.exec(line);
+    if (match) spaces = Math.min(spaces, match[1].length);
+  }
+  return spaces >= 2 && spaces <= 8 ? " ".repeat(spaces) : "  ";
+}

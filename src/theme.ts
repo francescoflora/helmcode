@@ -37,19 +37,21 @@ const view = EditorView.theme(
     ".cm-activeLine": {
       backgroundColor: "var(--editor-active-line, rgba(255,255,255,.04))",
     },
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
-      backgroundColor: "var(--editor-selection, var(--selection, rgba(255,255,255,.10)))",
-    },
-    "&:not(.cm-focused) .cm-selectionBackground": {
-      backgroundColor: "var(--editor-selection-inactive, var(--editor-selection, var(--selection)))",
-    },
-    ".cm-content .cm-selectionMatch": {
+    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
       backgroundColor: "var(--editor-occurrence-main, var(--editor-occurrence, var(--search-match, rgba(78,149,255,.25))))",
       borderRadius: "2px",
       boxShadow: "inset 0 0 0 1px var(--editor-occurrence-border, transparent)",
     },
-    ".cm-content .cm-selectionMatch-main": {
+    "&:not(.cm-focused) .cm-selectionBackground": {
       backgroundColor: "var(--editor-occurrence, var(--search-match, rgba(78,149,255,.25)))",
+    },
+    "::selection": {
+      backgroundColor: "var(--editor-occurrence-main, var(--editor-occurrence, var(--search-match, rgba(78,149,255,.25))))",
+    },
+    ".cm-content .cm-selectionMatch": {
+      backgroundColor: "var(--editor-selection, var(--selection, rgba(255,255,255,.10)))",
+      borderRadius: "0",
+      boxShadow: "none",
     },
     ".cm-cursor, .cm-dropCursor": {
       borderLeftColor: "var(--text, #f0f0f0)",
