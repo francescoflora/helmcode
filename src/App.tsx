@@ -95,6 +95,7 @@ export default function App() {
   const [fetchingGit, setFetchingGit] = useState(false);
   const [gitStatusBusy, setGitStatusBusy] = useState(false);
   const [gitHistoryBusy, setGitHistoryBusy] = useState(false);
+  const [gitSpinning, setGitSpinning] = useState(false);
   const [gitHistoryVersion, setGitHistoryVersion] = useState(0);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [problemsRequest, setProblemsRequest] = useState(0);
@@ -139,6 +140,7 @@ export default function App() {
   const revealNonce = useRef(0);
   const explorerRevealNonce = useRef(0);
   const gitRequest = useRef(0);
+  const gitSpinSeen = useRef(false);
   const gitRefresh = useRef<ReturnType<typeof createCoalescedRequest> | null>(null);
   const historyVisibleRef = useRef(false);
   const fileRefreshes = useRef(new Map<string, ReturnType<typeof createCoalescedRequest>>());
@@ -154,6 +156,15 @@ export default function App() {
     setGitHistoryVersion((version) => version + 1);
   }, []);
   const handleGitHistoryBusy = useCallback((busy: boolean) => setGitHistoryBusy(busy), []);
+  const startGitSpin = useCallback(() => {
+    gitSpinSeen.current = false;
+    setGitSpinning(true);
+  }, []);
+  useEffect(() => {
+    if (!gitSpinning) return;
+    if (gitBusy) gitSpinSeen.current = true;
+    else if (gitSpinSeen.current) setGitSpinning(false);
+  }, [gitSpinning, gitBusy]);
   useSyncedScroll(editorScroller, diffScroller, Boolean(showDiff && comparedPath));
   const combinedDiagnostics = useMemo(() => {
     const combined = { ...diagnostics };
@@ -334,23 +345,26 @@ export default function App() {
       if (requested === gitRequest.current) setGit(EMPTY_GIT);
     });
     gitRefresh.current = queue;
+    startGitSpin();
     queue.request();
     const refresh = () => {
       if (document.hidden) return;
       queue.request();
     };
-    const interval = window.setInterval(refresh, 8000);
+    const interval = window.setInterval(refresh, 180000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
       queue.dispose();
       setGitStatusBusy(false);
+      setGitSpinning(false);
+      gitSpinSeen.current = false;
       if (gitRefresh.current === queue) gitRefresh.current = null;
       window.clearInterval(interval);
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [workspace, workspaceOpenNonce, refreshGitHistory]);
+  }, [workspace, workspaceOpenNonce, refreshGitHistory, startGitSpin]);
 
   useEffect(() => {
     if (!workspace || document.hidden) return;
@@ -744,6 +758,7 @@ export default function App() {
     }
     setSyncMenuOpen(false);
     const requestedWorkspace = workspace;
+    startGitSpin();
     setFetchingGit(true);
     refreshGitHistory();
     ++gitRequest.current;
@@ -1141,7 +1156,7 @@ export default function App() {
                     <div className="editor-fill">{ideOpened && <Suspense fallback={<div className="panel-empty">Apertura editor…</div>}><EditorPane workspace={workspace} locked={mutatingFiles} tab={activeTab} diagnostics={activeDiagnostics} reveal={reveal} onChange={handleChange} onSave={(path) => void saveTab(path)} onNavigate={openSymbol} onScroller={setEditorScroller} /></Suspense>}</div>
                   </div>
                   {showDiff && comparedPath && <section className="diff-document" aria-label="Differenze del file rispetto a Git"><GitDiff workspace={workspace} path={comparedPath} content={activeTab?.content} version={gitVersion} onScroller={setDiffScroller} /></section>}
-                  {historyVisible && <GitHistory key={workspace} workspace={workspace} version={gitVersion} refreshToken={gitHistoryVersion} busy={gitBusy} onBusyChange={handleGitHistoryBusy} onCherryPick={cherryPickCommit} onNotify={notify} />}
+                  {historyVisible && <GitHistory key={workspace} workspace={workspace} version={gitVersion} refreshToken={gitHistoryVersion} busy={gitSpinning} onBusyChange={handleGitHistoryBusy} onRefreshStart={startGitSpin} onCherryPick={cherryPickCommit} onNotify={notify} />}
                 </div>
                 <TerminalPanel key={workspace} open={terminalOpen} active={mode === "ide" && !showProjects} createRequest={newTerminalRequest} focusRequest={terminalFocusRequest} onHide={hideTerminals} />
               </main>
@@ -1160,7 +1175,7 @@ export default function App() {
                   onBeforeCheckout={canCheckout} onSaveAll={saveBeforeBuild} onNotify={notify} onChanged={refreshSidebar} />
               : <button type="button" onClick={() => showView("git")} title="Visualizza branch e modifiche Git" className="status-item"><span className="status-branch-icon"><StatusBranchIcon /></span><span>Nessun repository</span></button>}
             {git.isRepo && <div className="status-sync-wrap">
-              <button type="button" onClick={() => syncMenuOpen ? setSyncMenuOpen(false) : void syncRepository()} disabled={fetchingGit} aria-label="Sincronizza repository" aria-busy={gitBusy} aria-haspopup="menu" aria-expanded={syncMenuOpen} title={`Sincronizza repository · ${git.ahead || 0} da inviare, ${git.behind || 0} da scaricare${git.upstream ? ` · ${git.upstream}` : " · Nessun branch remoto associato"}`} className="status-item status-sync"><StatusSyncIcon className={gitBusy ? "animate-spin-reverse" : ""} />{(git.behind > 0 || git.ahead > 0) && <><span className="status-sync-count" title={`${git.behind} commit da scaricare`}>↓{git.behind}</span><span className="status-sync-count" title={`${git.ahead} commit da inviare`}>↑{git.ahead}</span></>}</button>
+              <button type="button" onClick={() => syncMenuOpen ? setSyncMenuOpen(false) : void syncRepository()} disabled={fetchingGit} aria-label="Sincronizza repository" aria-busy={gitBusy} aria-haspopup="menu" aria-expanded={syncMenuOpen} title={`Sincronizza repository · ${git.ahead || 0} da inviare, ${git.behind || 0} da scaricare${git.upstream ? ` · ${git.upstream}` : " · Nessun branch remoto associato"}`} className="status-item status-sync"><StatusSyncIcon className={gitSpinning ? "animate-spin-reverse" : ""} />{(git.behind > 0 || git.ahead > 0) && <><span className="status-sync-count" title={`${git.behind} commit da scaricare`}>↓{git.behind}</span><span className="status-sync-count" title={`${git.ahead} commit da inviare`}>↑{git.ahead}</span></>}</button>
               {syncMenuOpen && <>
                 <div className="fixed inset-0 z-40" onClick={() => setSyncMenuOpen(false)} />
                 <div className="status-sync-menu" role="menu" aria-label="Sincronizza repository">

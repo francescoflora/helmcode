@@ -248,6 +248,7 @@ kbd { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 .status-item > svg, .status-branch-icon > svg { display: block; width: 16px; height: 16px; flex-shrink: 0; color: inherit; }
 .status-branch-icon { position: relative; display: inline-flex; }
 .status-branch-badge { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 10px; height: 10px; border-radius: 50%; background: var(--statusbar-foreground); color: var(--chrome); font: 700 9px/1 var(--font-sans); box-shadow: 0 0 0 1.5px var(--chrome); }
+.status-branch-badge-glyph { display: block; line-height: 1; transform: translateY(1px); }
 .status-problems { gap: 0; font-variant-numeric: tabular-nums; }
 .status-problems > span { margin-left: 2px; }
 .status-problems > svg:not(:first-child) { margin-left: 3px; }

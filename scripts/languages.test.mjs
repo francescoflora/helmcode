@@ -17,7 +17,7 @@ async function importSource(path) {
   return import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 }
 
-const { getLanguageDescription, languageName } = await importSource("../src/lib/languages.ts");
+const { detectIndentUnit, getLanguageDescription, languageName } = await importSource("../src/lib/languages.ts");
 const { helmcodeHighlight } = await importSource("../src/theme.ts");
 
 async function highlighted(path, doc) {
@@ -50,6 +50,17 @@ test("recognizes language filenames, Windows paths and upper-case extensions", (
   }
   assert.equal(getLanguageDescription("notes.txt"), null);
   assert.equal(getLanguageDescription("unknown.zzz"), null);
+});
+
+test("detects the file indent unit so editors and guides match real nesting", () => {
+  const rust = "pub struct AppState {\n    pub workspace: RwLock<PathBuf>,\n}\n";
+  const typescript = "const app = {\n  mount() {\n    return 1;\n  },\n};\n";
+  const tabbed = "fn main() {\n\tlet value = 1;\n}\n";
+  assert.equal(detectIndentUnit(rust), "    ");
+  assert.equal(detectIndentUnit(typescript), "  ");
+  assert.equal(detectIndentUnit(tabbed), "\t");
+  assert.equal(detectIndentUnit(""), "  ");
+  assert.equal(detectIndentUnit("single line"), "  ");
 });
 
 test("HTML distinguishes tags, attributes and values, including CSS and JS inside it", async () => {

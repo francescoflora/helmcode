@@ -17,6 +17,7 @@ type Props = {
   refreshToken: number;
   busy: boolean;
   onBusyChange: (busy: boolean) => void;
+  onRefreshStart?: () => void;
   onCherryPick: (hash: string) => void | Promise<void>;
   onNotify: (message: string) => void;
 };
@@ -63,7 +64,7 @@ function RefIcon({ kind }: { kind: RefKind }) {
   return <GitBranchIcon className={className} />;
 }
 
-export function GitHistory({ workspace, version, refreshToken, busy, onBusyChange, onCherryPick, onNotify }: Props) {
+export function GitHistory({ workspace, version, refreshToken, busy, onBusyChange, onRefreshStart, onCherryPick, onNotify }: Props) {
   const [log, setLog] = useState<GitLog | null>(null);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(true);
@@ -237,8 +238,8 @@ export function GitHistory({ workspace, version, refreshToken, busy, onBusyChang
       <GitBranchIcon className="h-4.5 w-4.5 text-[var(--accent)]" />
       <span className="git-history-title">Grafo dei commit</span>
       <span className="git-history-count">{commitCount} commit · tutti i branch e tag</span>
-      <button type="button" className="icon-button ml-auto" onClick={() => setReload((value) => value + 1)} aria-label="Ricarica grafo Git" aria-busy={busy || loading} title="Ricarica grafo Git">
-        <RefreshIcon className={`h-4 w-4 ${busy || loading ? "animate-spin-reverse" : ""}`} />
+      <button type="button" className="icon-button ml-auto" onClick={() => { onRefreshStart?.(); setReload((value) => value + 1); }} aria-label="Ricarica grafo Git" aria-busy={busy || loading} title="Ricarica grafo Git">
+        <RefreshIcon className={`h-4 w-4 ${busy || (loading && !log) ? "animate-spin-reverse" : ""}`} />
       </button>
     </header>
     {error && <div role="alert" className="git-history-error">{error}</div>}

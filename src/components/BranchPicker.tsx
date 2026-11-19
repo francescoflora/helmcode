@@ -92,7 +92,7 @@ export function BranchPicker({ workspace, version, current, variant, disabled, h
         {variant === "status" ? (
           <span className="status-branch-icon">
             <StatusBranchIcon />
-            {attention && <span className="status-branch-badge" aria-hidden="true">*</span>}
+            {attention && <span className="status-branch-badge" aria-hidden="true"><span className="status-branch-badge-glyph">*</span></span>}
           </span>
         ) : <GitBranchIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />}
         <span className="branch-picker-label">{label}{badge && <span className="branch-picker-badge" aria-hidden="true">{badge}</span>}</span>

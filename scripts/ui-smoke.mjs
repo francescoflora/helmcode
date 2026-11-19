@@ -250,7 +250,10 @@ try {
             if (window.__qaHoldGitFetch) await new Promise(resolve => { window.__qaGitFetchWaits = window.__qaGitFetchWaits || []; window.__qaGitFetchWaits.push(resolve); });
             return { isRepo: true, branch, changes: changes.map(change => ({ ...change })), upstream: 'origin/' + branch, ahead: window.__qaAhead || 0, behind: window.__qaBehind || 0, merging: false };
           }
-          if (command === 'git_status') return { isRepo: true, branch, changes: changes.map(change => ({ ...change })), upstream: 'origin/' + branch, ahead: window.__qaAhead || 0, behind: window.__qaBehind || 0, merging: false };
+          if (command === 'git_status') {
+            if (window.__qaHoldGitStatus) await new Promise(resolve => { window.__qaGitStatusWaits = window.__qaGitStatusWaits || []; window.__qaGitStatusWaits.push(resolve); });
+            return { isRepo: true, branch, changes: changes.map(change => ({ ...change })), upstream: 'origin/' + branch, ahead: window.__qaAhead || 0, behind: window.__qaBehind || 0, merging: false };
+          }
           if (command === 'git_branches') return [{ name: 'main', current: branch === 'main', remote: false, shortHash: 'aaaaaaa', author: 'Francesco Flora', date: '2026-11-12T10:30:00+01:00', subject: 'feat: grafo commit' }, { name: 'feature/clean-ui', current: branch === 'feature/clean-ui', remote: false, shortHash: 'bbbbbbb', author: 'Ada Lovelace', date: '2026-11-11T09:15:00+01:00', subject: 'fix: ramo feature' }, { name: 'origin/main', current: false, remote: true, shortHash: 'aaaaaaa', author: 'Francesco Flora', date: '2026-11-12T10:30:00+01:00', subject: 'feat: grafo commit' }];
           if (command === 'git_checkout') { branch = args.branch; return; }
           if (command === 'git_create_branch') {
@@ -585,6 +588,10 @@ try {
   assert.equal(await evaluate(`document.querySelector('.statusbar .status-sync svg')?.classList.contains('animate-spin-reverse') && document.querySelector('.git-history-header button[aria-label="Ricarica grafo Git"] svg')?.classList.contains('animate-spin-reverse')`), true, 'Status indicator waits for the graph refresh');
   await evaluate(`window.__qaHoldGitFetch = false; window.__qaHoldGitLog = false; (window.__qaGitLogWaits || []).forEach(resolve => resolve()); window.__qaGitLogWaits = []`);
   await until(`!document.querySelector('.statusbar .status-sync svg')?.classList.contains('animate-spin-reverse') && !document.querySelector('.git-history-header button[aria-label="Ricarica grafo Git"] svg')?.classList.contains('animate-spin-reverse')`, 'Both Git indicators stop after both updates finish');
+  await evaluate(`window.__qaHoldGitStatus = true; window.__qaGitStatusWaits = []; window.dispatchEvent(new Event('focus'))`);
+  await until(`window.__qaGitStatusWaits.length > 0`, 'Background Git status refresh starts');
+  assert.equal(await evaluate(`!document.querySelector('.statusbar .status-sync svg')?.classList.contains('animate-spin-reverse') && !document.querySelector('.git-history-header button[aria-label="Ricarica grafo Git"] svg')?.classList.contains('animate-spin-reverse')`), true, 'Background Git refresh leaves both indicators still');
+  await evaluate(`window.__qaHoldGitStatus = false; (window.__qaGitStatusWaits || []).forEach(resolve => resolve()); window.__qaGitStatusWaits = []`);
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await pause(150);
@@ -611,7 +618,9 @@ try {
   assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.statusbar .status-sync-count'), count => count.textContent)`), ['↓1', '↑2'], 'Sync item shows incoming commits first and outgoing commits on the right');
   assert.equal(await evaluate(`document.querySelector('.statusbar .branch-picker-trigger').textContent.trim().endsWith('*')`), true, 'Uncommitted changes keep the branch star');
   assert.equal(await evaluate(`window.__qaCalls.filter(c => c.command === 'git_fetch').at(-1).args.expectedWorkspace`), 'C:/Projects/helmcode', 'Fetch targets current repository');
-  await evaluate(`window.__qaAhead = 0; window.__qaBehind = 0; document.querySelector('button[aria-label="Sincronizza repository"]').click()`);
+  await evaluate(`window.__qaAhead = 0; window.__qaBehind = 0; window.dispatchEvent(new Event('focus'))`);
+  await until(`document.querySelector('button[aria-label="Sincronizza repository"]').title.includes('0 da inviare, 0 da scaricare')`, 'Remote counts sync from background status');
+  await evaluate(`document.querySelector('button[aria-label="Sincronizza repository"]').click()`);
   await until(`document.querySelector('button[aria-label="Sincronizza repository"]').title.includes('0 da inviare, 0 da scaricare')`, 'Remote counts clear when up to date');
   assert.equal(await evaluate(`document.querySelector('.statusbar .status-sync').textContent.trim()`), '', 'Sync item hides counts when up to date');
   assert.equal(await evaluate(`!!document.querySelector('.statusbar .branch-picker-badge')`), true, 'Local changes keep the existing attention marker');
