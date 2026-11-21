@@ -196,7 +196,7 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
       indentUnit.of(detectIndentUnit(tab.content)),
       indentationMarkers({
         highlightActiveBlock: true,
-        hideFirstIndent: true,
+        hideFirstIndent: false,
         markerType: "fullScope",
         thickness: 1,
         activeThickness: 1,
@@ -362,11 +362,6 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
         <BrandWordmark className="brand-welcome" />
         <h1 className="text-xl font-medium tracking-tight text-[var(--text)]">Spazio al tuo codice.</h1>
         <p className="mt-3 max-w-[360px] text-[13px] leading-6 text-[var(--muted)]">Apri un file dal progetto per iniziare. Ritrovi modifiche, branch e build nella barra laterale.</p>
-        <div className="welcome-shortcuts">
-          <span>File <kbd>Ctrl Shift E</kbd></span>
-          <span>Cerca <kbd>Ctrl Shift F</kbd></span>
-          <span>Salva <kbd>Ctrl S</kbd></span>
-        </div>
       </div>
     );
   }

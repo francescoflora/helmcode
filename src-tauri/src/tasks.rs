@@ -224,6 +224,7 @@ pub fn detect(workspace: &Path) -> WorkspaceTasks {
     let mut result = WorkspaceTasks::default();
     let package_json = workspace.join("package.json");
     let cargo_toml = workspace.join("Cargo.toml");
+    let pom_xml = workspace.join("pom.xml");
 
     if package_json.is_file() {
         result.project_types.push("node".to_string());
@@ -298,7 +299,66 @@ pub fn detect(workspace: &Path) -> WorkspaceTasks {
         }
     }
 
+    if pom_xml.is_file() {
+        result.project_types.push("maven".to_string());
+        let mvn = maven_command(workspace);
+        let pom = std::fs::read_to_string(&pom_xml)
+            .unwrap_or_default()
+            .to_lowercase();
+        for phase in [
+            "clean", "validate", "compile", "test", "package", "verify", "install", "site", "deploy",
+        ] {
+            result.tasks.push(WorkspaceTask {
+                id: format!("maven:{phase}"),
+                label: format!("maven {phase}"),
+                command: format!("{mvn} {phase}"),
+                group: "maven".to_string(),
+                kind: "build".to_string(),
+            });
+        }
+        let mut run_goals: Vec<&str> = Vec::new();
+        for (plugin, goal) in [
+            ("spring-boot-maven-plugin", "spring-boot:run"),
+            ("quarkus-maven-plugin", "quarkus:dev"),
+            ("javafx-maven-plugin", "javafx:run"),
+            ("jetty-maven-plugin", "jetty:run"),
+            ("exec-maven-plugin", "exec:java"),
+        ] {
+            if pom.contains(plugin) {
+                run_goals.push(goal);
+            }
+        }
+        if run_goals.is_empty() {
+            run_goals.extend(["spring-boot:run", "exec:java"]);
+        }
+        for goal in run_goals {
+            result.tasks.push(WorkspaceTask {
+                id: format!("maven:{goal}"),
+                label: format!("maven {goal}"),
+                command: format!("{mvn} {goal}"),
+                group: "maven".to_string(),
+                kind: "play".to_string(),
+            });
+        }
+        if result.build.is_none() {
+            result.build = result.tasks.iter().find(|task| task.id == "maven:package").cloned();
+        }
+        if result.play.is_none() {
+            result.play = result.tasks.iter().find(|task| task.group == "maven" && task.kind == "play").cloned();
+        }
+    }
+
     result
+}
+
+fn maven_command(workspace: &Path) -> &'static str {
+    if workspace.join("mvnw.cmd").is_file() {
+        "mvnw.cmd"
+    } else if workspace.join("mvnw").is_file() {
+        if cfg!(windows) { "mvnw" } else { "./mvnw" }
+    } else {
+        "mvn"
+    }
 }
 
 fn task_by_name(tasks: &[WorkspaceTask], name: &str) -> Option<WorkspaceTask> {
@@ -363,6 +423,38 @@ mod tests {
         assert_eq!(tasks.build.unwrap().command, "cargo build");
         assert_eq!(tasks.play.unwrap().command, "cargo run");
         assert!(tasks.tasks.iter().any(|task| task.command == "cargo test"));
+        fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn detects_maven_tasks_and_run_goals() {
+        let directory = workspace();
+        fs::write(
+            directory.join("pom.xml"),
+            r#"<project><build><plugins>
+                <plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin>
+                <plugin><artifactId>exec-maven-plugin</artifactId></plugin>
+            </plugins></build></project>"#,
+        )
+        .unwrap();
+        let tasks = detect(&directory);
+        assert_eq!(tasks.project_types, vec!["maven".to_string()]);
+        assert_eq!(tasks.build.unwrap().command, "mvn package");
+        assert_eq!(tasks.play.unwrap().command, "mvn spring-boot:run");
+        assert!(tasks.tasks.iter().any(|task| task.command == "mvn clean" && task.kind == "build"));
+        assert!(tasks.tasks.iter().any(|task| task.command == "mvn install" && task.kind == "build"));
+        assert!(tasks.tasks.iter().any(|task| task.command == "mvn exec:java" && task.kind == "play"));
+        assert_eq!(tasks.tasks.iter().filter(|task| task.kind == "build").count(), 9);
+        fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn maven_without_known_plugins_offers_common_run_goals() {
+        let directory = workspace();
+        fs::write(directory.join("pom.xml"), "<project></project>").unwrap();
+        let tasks = detect(&directory);
+        assert_eq!(tasks.play.unwrap().command, "mvn spring-boot:run");
+        assert!(tasks.tasks.iter().any(|task| task.command == "mvn exec:java" && task.kind == "play"));
         fs::remove_dir_all(directory).ok();
     }
 

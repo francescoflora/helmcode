@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import { readStored, writeStored } from "../lib/storage";
 import type { TerminalTab } from "../types";
-import { PencilIcon, PlusIcon, RefreshIcon, TerminalIcon, TrashIcon, XIcon } from "./Icons";
+import { PencilIcon, PlusIcon, MaximizeIcon, RefreshIcon, RestoreIcon, TerminalIcon, TrashIcon, XIcon } from "./Icons";
 
 const TerminalSession = lazy(() => import("./TerminalSession").then((module) => ({ default: module.TerminalSession })));
 
@@ -11,6 +11,7 @@ type Sessions = { items: TerminalTab[]; selected: string | null };
 export function TerminalPanel({ open, active, createRequest, focusRequest, onHide }: Props) {
   const [sessions, setSessions] = useState<Sessions>({ items: [], selected: null });
   const [height, setHeight] = useState(() => Math.min(600, Math.max(160, readStored<number>("helmcode.terminals.height", 280))));
+  const [maximized, setMaximized] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState("");
   const nextNumber = useRef(0);
@@ -37,6 +38,7 @@ export function TerminalPanel({ open, active, createRequest, focusRequest, onHid
     }
   }, [open, createRequest, create]);
   useEffect(() => writeStored("helmcode.terminals.height", height), [height]);
+  useEffect(() => { if (!open) setMaximized(false); }, [open]);
   useEffect(() => {
     if (!open || !active || !focusRequest) return;
     const frame = requestAnimationFrame(() => panel.current?.querySelector<HTMLTextAreaElement>(".terminal-pane:not([hidden]) .xterm-helper-textarea")?.focus());
@@ -80,7 +82,7 @@ export function TerminalPanel({ open, active, createRequest, focusRequest, onHid
   };
 
   return (
-    <section ref={panel} className="terminal-panel" hidden={!open} style={{ height }} aria-label="Terminali del progetto">
+    <section ref={panel} className={`terminal-panel ${maximized ? "is-maximized" : ""}`} hidden={!open} style={maximized ? undefined : { height }} aria-label="Terminali del progetto">
       <div className="terminal-resizer" role="separator" aria-label="Ridimensiona terminali" aria-orientation="horizontal" tabIndex={0}
         onPointerDown={beginResize}
         onPointerMove={(event) => { const start = resizeStart.current; if (start) setHeight(Math.min(start.max, Math.max(160, start.height + start.y - event.clientY))); }}
@@ -111,6 +113,7 @@ export function TerminalPanel({ open, active, createRequest, focusRequest, onHid
           <button type="button" className="icon-button" onClick={create} aria-label="Nuovo terminale" title="Nuovo terminale (Ctrl+Shift+`)"><PlusIcon className="h-[18px] w-[18px]" /></button>
           <button type="button" className="icon-button" disabled={!selected} onClick={() => selected && startRename(selected)} aria-label="Rinomina terminale" title="Rinomina terminale"><PencilIcon className="h-4 w-4" /></button>
           <button type="button" className="icon-button" disabled={!selected} onClick={() => selected && close(selected.id)} aria-label="Chiudi terminale attivo" title="Chiudi terminale attivo"><TrashIcon className="h-4 w-4" /></button>
+          <button type="button" className="icon-button" aria-pressed={maximized} onClick={() => setMaximized((value) => !value)} aria-label={maximized ? "Ripristina terminale" : "Espandi terminale"} title={maximized ? "Ripristina terminale" : "Espandi terminale"}>{maximized ? <RestoreIcon className="h-4 w-4" /> : <MaximizeIcon className="h-4 w-4" />}</button>
           <button type="button" className="icon-button" onClick={onHide} aria-label="Nascondi terminali" title="Nascondi terminali (Ctrl+`)"><XIcon className="h-[18px] w-[18px]" /></button>
         </div>
       </header>

@@ -288,7 +288,7 @@ export function SearchPanel({ workspace, active, tabs, version, focusRequest, di
                       {match.line}
                     </span>
                     <span className="min-w-0 flex-1 truncate font-mono text-xs leading-relaxed text-[var(--secondary)]">
-                      {match.prefix}
+                      {clipPreviewPrefix(match.prefix)}
                       <span className={replaceOpen ? "search-match-removed" : "rounded bg-[var(--accent)]/25 px-0.5 text-[var(--accent)]"}>
                         {match.matched || "∅"}
                       </span>
@@ -334,6 +334,12 @@ function SearchSection({ label, count, open, onToggle, children }: {
       {open && <div className="mt-0.5">{children}</div>}
     </div>
   );
+}
+
+const PREVIEW_PREFIX_CHARS = 10;
+
+function clipPreviewPrefix(prefix: string) {
+  return prefix.length > PREVIEW_PREFIX_CHARS ? `…${prefix.slice(-PREVIEW_PREFIX_CHARS)}` : prefix;
 }
 
 function highlightMatch(text: string, query: string) {
