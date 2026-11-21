@@ -208,10 +208,10 @@ export function BuildPanel({ workspace, version, diagnostics, onOpenAt, onDiagno
       {error && <div role="alert" className="panel-error">{error}</div>}
       <div className="build-main">
         <div className="build-tasks-wrap">
-          <details className="build-task-list" open={runs.length === 0}>
-            <summary>Task del progetto <span>{tasks?.tasks.length ?? 0}</span></summary>
+          <div className="build-task-list">
+            <div className="build-task-title">Task del progetto <span>{tasks?.tasks.length ?? 0}</span></div>
             {loading && !tasks && <p className="px-3 py-2 text-[13px] text-[var(--muted)]">Analisi progetto…</p>}
-            {!loading && tasks?.tasks.length === 0 && <p className="px-3 py-2 text-[13px] leading-5 text-[var(--muted)]">Nessun task rilevato. Apri un progetto con package.json o Cargo.toml.</p>}
+            {!loading && tasks?.tasks.length === 0 && <p className="px-3 py-2 text-[13px] leading-5 text-[var(--muted)]">Nessun task rilevato. Apri un progetto con package.json, Cargo.toml o pom.xml.</p>}
             <div className="scroll-area build-task-scroll">
               {tasks?.tasks.map((task) => {
                 const defaultKind = task.id === defaultBuild?.id ? "build" : task.id === defaultPlay?.id ? "play" : null;
@@ -228,7 +228,7 @@ export function BuildPanel({ workspace, version, diagnostics, onOpenAt, onDiagno
                 );
               })}
             </div>
-          </details>
+          </div>
         </div>
         <div ref={resultsRef} className={`build-results ${resultsOpen ? "" : "is-collapsed"}`} style={resultsOpen ? { height: resultsHeight } : undefined}>
           {resultsOpen && <div className="build-results-resizer" role="separator" aria-label="Ridimensiona la sezione Problemi e Output" aria-orientation="horizontal" tabIndex={0} title="Trascina per ridimensionare la sezione" onPointerDown={beginResultsResize} onPointerMove={moveResultsResize} onPointerUp={endResultsResize} onPointerCancel={endResultsResize} onKeyDown={(event) => {

@@ -11,12 +11,12 @@ const HOVER_EXPAND_DELAY = 600;
 const sortEntries = (entries: DirEntry[]) => entries.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
 type Props = {
   workspace: string; version: number; changes: ReadonlyMap<string, ChangeKind>; activePath: string | null;
-  onOpen: (path: string) => void; createRequest: { id: number; kind: "file" | "folder" }; onCreated: () => void;
+  onOpen: (path: string) => void; createRequest: { id: number; kind: "file" | "folder" }; collapseRequest: number; onCreated: () => void;
   onMutate: (operations: FileOperation[]) => Promise<WorkspaceMutation | null>;
   revealRequest: { path: string; nonce: number } | null;
 };
 
-export function FileExplorer({ workspace, version, changes, activePath, onOpen, createRequest, onCreated, onMutate, revealRequest }: Props) {
+export function FileExplorer({ workspace, version, changes, activePath, onOpen, createRequest, collapseRequest, onCreated, onMutate, revealRequest }: Props) {
   const [selected, setSelected] = useState<DirEntry | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<{ parent: string; kind: "file" | "folder" } | null>(null);
@@ -120,6 +120,10 @@ export function FileExplorer({ workspace, version, changes, activePath, onOpen, 
     const currentWorkspace = workspace;
     void reload(expandedRef.current, currentWorkspace).catch((reason: unknown) => { if (workspaceRef.current === currentWorkspace) setError(String(reason)); });
   }, [version]);
+  useEffect(() => {
+    if (!collapseRequest) return;
+    setExpanded(new Set());
+  }, [collapseRequest]);
   useEffect(() => {
     if (!revealRequest?.path) return;
     const currentWorkspace = workspace;

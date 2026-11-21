@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/tauri";
 import { parseConflicts, resolveConflicts, type ConflictChoice, type ParsedConflicts } from "../lib/conflicts";
+import { confirmAction } from "../lib/confirm";
 import { AlertIcon, CheckIcon, XIcon } from "./Icons";
 
 type ConflictFile = {
@@ -133,7 +134,12 @@ export function ConflictResolverModal({ workspace, conflicts, operation, onClose
   };
 
   const abort = async () => {
-    if (!window.confirm(`Annullare il ${operationLabel} e ripristinare lo stato precedente?`)) return;
+    if (!(await confirmAction({
+      title: `Annulla ${operationLabel}`,
+      message: `Annullare il ${operationLabel} e ripristinare lo stato precedente?`,
+      confirmLabel: `Annulla ${operationLabel}`,
+      danger: true,
+    }))) return;
     setBusy(true);
     setError(null);
     try {

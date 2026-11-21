@@ -1,20 +1,21 @@
 import type { ActivityView } from "../types";
-import { FilePlusIcon, FolderPickerIcon, RefreshIcon } from "./Icons";
+import { CollapseAllIcon, FilePlusIcon, FolderPickerIcon, RefreshIcon } from "./Icons";
 
 type Props = {
   view: ActivityView;
   onCreate: (kind: "file" | "folder") => void;
   onRefresh: () => void;
+  onCollapseAll: () => void;
 };
 
 const labels: Record<ActivityView, string> = {
-  explorer: "Progetto",
+  explorer: "Esplora file",
   search: "Cerca",
   git: "Git e branch",
   build: "Build e problemi",
 };
 
-export function SidebarHeader({ view, onCreate, onRefresh }: Props) {
+export function SidebarHeader({ view, onCreate, onRefresh, onCollapseAll }: Props) {
   return (
     <div className="sidebar-header">
       <span>
@@ -41,6 +42,15 @@ export function SidebarHeader({ view, onCreate, onRefresh }: Props) {
               className="icon-button"
             >
               <RefreshIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onCollapseAll}
+              title="Comprimi tutte le cartelle"
+              aria-label="Comprimi tutte le cartelle"
+              className="icon-button"
+            >
+              <CollapseAllIcon className="h-4 w-4" />
             </button>
           </>
         )}

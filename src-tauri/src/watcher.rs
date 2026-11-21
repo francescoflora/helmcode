@@ -111,17 +111,20 @@ impl Drop for WorkspaceWatcher {
 
 pub fn should_watch(workspace: &Path) -> bool {
     !workspace.as_os_str().is_empty()
-        && (workspace.join(".git").exists()
-            || workspace.join("package.json").exists()
-            || workspace.join("Cargo.toml").exists())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::PendingChanges;
+    use super::{should_watch, PendingChanges};
     use notify::Event;
     use std::path::Path;
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn watches_any_non_empty_workspace() {
+        assert!(should_watch(Path::new("workspace")));
+        assert!(!should_watch(Path::new("")));
+    }
 
     #[test]
     fn coalesces_repeated_paths_and_ignores_generated_events_before_queuing() {

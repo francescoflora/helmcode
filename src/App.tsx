@@ -5,6 +5,7 @@ import { AboutModal } from "./components/AboutModal";
 import { BranchPicker } from "./components/BranchPicker";
 import { BuildPanel as BuildPanelComponent } from "./components/BuildPanel";
 import { CloseConfirmModal } from "./components/CloseConfirmModal";
+import { ConfirmHost } from "./components/ConfirmModal";
 import { FileExplorer as FileExplorerComponent } from "./components/FileExplorer";
 import { FileTypeIcon } from "./components/FileTypeIcon";
 import { GitPanel as GitPanelComponent } from "./components/GitPanel";
@@ -24,6 +25,7 @@ import { WindowResizeHandles } from "./components/WindowResizeHandles";
 import { readStored, writeStored } from "./lib/storage";
 import { agentLabel } from "./lib/agents";
 import type { BuildDiagnostic } from "./lib/build";
+import { confirmAction } from "./lib/confirm";
 import { addRecent, listRecents } from "./lib/recents";
 import { loadPrefs, resetPrefs, savePref, type Prefs } from "./lib/prefs";
 import { applyTheme, subscribeTheme } from "./lib/appearance";
@@ -46,6 +48,12 @@ type PendingOpen =
 const EditorPane = lazy(() => import("./components/EditorPane").then((module) => ({ default: module.EditorPane })));
 const TerminalSession = lazy(() => import("./components/TerminalSession").then((module) => ({ default: module.TerminalSession })));
 const normalPath = (path: string) => path.replace(/\\/g, "/");
+const IS_WINDOWS = navigator.userAgent.includes("Windows");
+const sameWorkspace = (left: string, right: string) => {
+  const a = normalPath(left).replace(/\/+$/, "");
+  const b = normalPath(right).replace(/\/+$/, "");
+  return IS_WINDOWS ? a.toLowerCase() === b.toLowerCase() : a === b;
+};
 const AUTOSAVE_DELAY = 500;
 const AGENT_CLOSE_WARNING = "La sessione AGENT verrà chiusa. Se l'agente sta lavorando, il suo lavoro s'interromperà bruscamente e potresti perdere del lavoro.";
 const BuildPanel = memo(BuildPanelComponent);
@@ -57,6 +65,7 @@ const TerminalPanel = memo(TerminalPanelComponent);
 const FileExplorer = memo(FileExplorerComponent, (previous, next) =>
   previous.workspace === next.workspace && previous.version === next.version
   && previous.activePath === next.activePath && previous.createRequest === next.createRequest
+  && previous.collapseRequest === next.collapseRequest
   && previous.onOpen === next.onOpen && previous.onCreated === next.onCreated && previous.onMutate === next.onMutate
   && previous.revealRequest === next.revealRequest
   && previous.changes.size === next.changes.size && [...previous.changes].every(([path, kind]) => next.changes.get(path) === kind));
@@ -99,7 +108,7 @@ export default function App() {
   const [gitHistoryVersion, setGitHistoryVersion] = useState(0);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [problemsRequest, setProblemsRequest] = useState(0);
-  const [showDiff, setShowDiff] = useState(false);
+  const [diffMode, setDiffMode] = useState(false);
   const [diffPath, setDiffPath] = useState<string | null>(null);
   const [mode, setMode] = useState<WorkspaceMode>(() => prefs.startMode);
   const [ideOpened, setIdeOpened] = useState(mode === "ide");
@@ -118,6 +127,7 @@ export default function App() {
   const [newTerminalRequest, setNewTerminalRequest] = useState(0);
   const [terminalFocusRequest, setTerminalFocusRequest] = useState(0);
   const [explorerCreateRequest, setExplorerCreateRequest] = useState<{ id: number; kind: "file" | "folder" }>({ id: 0, kind: "file" });
+  const [explorerCollapseRequest, setExplorerCollapseRequest] = useState(0);
   const [explorerReveal, setExplorerReveal] = useState<{ path: string; nonce: number } | null>(null);
   const [searchFocus, setSearchFocus] = useState({ nonce: 0, replace: false });
   const [editorScroller, setEditorScroller] = useState<HTMLElement | null>(null);
@@ -125,8 +135,6 @@ export default function App() {
   const maximized = useWindowMaximized();
   useWorkspaceWindowSize(appReady && showSplash === false && !showProjects && Boolean(workspace));
   const agentAlive = Boolean(session && !session.exited);
-  const agentAliveRef = useRef(agentAlive);
-  agentAliveRef.current = agentAlive;
   const tabsRef = useRef(tabs);
   const activePathRef = useRef(activePath);
   const diffPathRef = useRef(diffPath);
@@ -149,6 +157,9 @@ export default function App() {
   const comparedPath = activeTab?.external ? null : activePath ?? diffPath;
   const historyVisible = showHistory && git.isRepo;
   historyVisibleRef.current = historyVisible;
+  const changePaths = useMemo(() => buildChangeMap(git.changes, { includeDeleted: false }), [git]);
+  const activeChanged = Boolean(activeTab && !activeTab.external && changePaths.has(normalPath(activeTab.path)));
+  const showDiff = Boolean(diffMode && !historyVisible && comparedPath && (activeChanged || (!activeTab && diffPath)));
   const gitBusy = fetchingGit || gitStatusBusy || gitHistoryBusy;
   const refreshGitHistory = useCallback(() => {
     if (!historyVisibleRef.current) return;
@@ -182,7 +193,6 @@ export default function App() {
   }, [diagnostics, buildDiagnostics]);
   const activeDiagnostics = activeTab ? combinedDiagnostics[activeTab.path] ?? EMPTY_DIAGNOSTICS : EMPTY_DIAGNOSTICS;
   const dirtyPaths = useMemo(() => new Set(tabs.filter((tab) => tab.content !== tab.savedContent).map((tab) => normalPath(tab.path))), [tabs]);
-  const changePaths = useMemo(() => buildChangeMap(git.changes, { includeDeleted: false }), [git]);
   const { errorCount, warningCount } = useMemo(() => {
     let errorCount = 0, warningCount = 0;
     for (const items of Object.values(combinedDiagnostics)) {
@@ -201,8 +211,6 @@ export default function App() {
   }, [combinedDiagnostics, buildDiagnostics]);
   const notify = useCallback((message: string) => setToast(message), []);
   const hideTerminals = useCallback(() => setTerminalOpen(false), []);
-  const confirmAgentStop = useCallback((question: string) =>
-    !agentAliveRef.current || window.confirm(`${question}\n\n${AGENT_CLOSE_WARNING}`), []);
   const handleAgentExit = useCallback((id: string) => {
     setSession((current) => current?.id === id ? { ...current, exited: true } : current);
   }, []);
@@ -400,7 +408,7 @@ export default function App() {
 
   const openAt = useCallback(async (path: string, line: number, column: number) => {
     const requestedWorkspace = workspaceRef.current;
-    setShowDiff(false);
+    setDiffPath(null);
     const opened = await openFile(path);
     if (!opened || workspaceRef.current !== requestedWorkspace) return;
     setReveal({ path: normalPath(path), line, column, nonce: ++revealNonce.current });
@@ -410,7 +418,7 @@ export default function App() {
     const requestedWorkspace = workspaceRef.current;
     const sourcePath = activePathRef.current;
     const sourceContent = tabsRef.current.find((tab) => tab.path === sourcePath)?.content;
-    setShowDiff(false);
+    setDiffPath(null);
     const opened = await openFile(target.path, target.external, () => activePathRef.current === sourcePath
       && tabsRef.current.find((tab) => tab.path === sourcePath)?.content === sourceContent);
     if (!opened || workspaceRef.current !== requestedWorkspace) return;
@@ -504,7 +512,6 @@ export default function App() {
     fileRefreshes.current.delete(path);
     if (!tab?.external) void closeIntelligence(workspaceRef.current, path).catch(() => undefined);
     if ((activePathRef.current ?? diffPathRef.current) === path) {
-      setShowDiff(false);
       setDiffPath(null);
     }
     setTabs(remaining);
@@ -518,7 +525,12 @@ export default function App() {
 
   const revertFile = useCallback(async (path: string, untracked: boolean) => {
     if (fileMutationRef.current) return;
-    if (!window.confirm(untracked ? `Eliminare il file non tracciato ${path}?` : `Scartare le modifiche a ${path}?`)) return;
+    if (!(await confirmAction({
+      title: untracked ? "Elimina file non tracciato" : "Scarta le modifiche",
+      message: untracked ? `Il file ${path} verrà eliminato definitivamente.` : `${path} tornerà alla versione di HEAD.`,
+      confirmLabel: untracked ? "Elimina" : "Scarta",
+      danger: true,
+    }))) return;
     const requestedWorkspace = workspaceRef.current;
     try {
       await api.gitRevertFile(requestedWorkspace, path);
@@ -545,7 +557,12 @@ export default function App() {
     const untracked = changes.filter((change) => change.untracked).length;
     const tracked = changes.length - untracked;
     const summary = `${tracked} ${tracked === 1 ? "file ripristinato" : "file ripristinati"}, ${untracked} ${untracked === 1 ? "file non tracciato eliminato" : "file non tracciati eliminati"}`;
-    if (!window.confirm(`Scartare tutte le modifiche? ${summary}.`)) return;
+    if (!(await confirmAction({
+      title: "Scarta tutte le modifiche",
+      message: `${summary}.`,
+      confirmLabel: "Scarta tutto",
+      danger: true,
+    }))) return;
     const requestedWorkspace = workspaceRef.current;
     try {
       await api.gitRevertAll(requestedWorkspace);
@@ -606,10 +623,20 @@ export default function App() {
 
   useEffect(() => {
     const flush = () => { void saveBeforeBuild(); };
+    // VSCode refreshes the Explorer on window focus to recover missing file events.
+    let lastFocusRefresh = 0;
+    const refresh = () => {
+      const now = Date.now();
+      if (now - lastFocusRefresh < 500) return;
+      lastFocusRefresh = now;
+      setExplorerVersion((version) => version + 1);
+    };
     window.addEventListener("blur", flush);
+    window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", flush);
     return () => {
       window.removeEventListener("blur", flush);
+      window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", flush);
       cancelAutosaves();
     };
@@ -617,9 +644,14 @@ export default function App() {
 
   const canSwitchWorkspace = useCallback(async () => {
     if (fileMutationRef.current) { notify("Attendi il completamento dell’operazione sui file."); return false; }
-    if (!confirmAgentStop("Aprire un altro progetto in questa finestra?")) return false;
+    if (workspaceRef.current && !(await confirmAction({
+      title: "Cambia progetto",
+      message: "Sei sicuro di voler cambiare progetto? Eventuale lavoro in corso potrebbe andare perso.",
+      confirmLabel: "Cambia progetto",
+      danger: true,
+    }))) return false;
     return saveBeforeBuild();
-  }, [confirmAgentStop, notify, saveBeforeBuild]);
+  }, [notify, saveBeforeBuild]);
 
   const openRecent = useCallback(async (path: string) => {
     if (!(await canSwitchWorkspace())) return;
@@ -725,7 +757,8 @@ export default function App() {
     setMode("ide");
     setActiveView(view);
     setSidebarCollapsed(false);
-    if (view === "git") { setShowDiff(false); setShowHistory(true); }
+    if (view === "explorer") setExplorerVersion((version) => version + 1);
+    if (view === "git") { setDiffMode(false); setShowHistory(true); }
     else setShowHistory(false);
   }, []);
 
@@ -848,7 +881,7 @@ export default function App() {
     const changedWorkspace = workspaceRef.current;
     setExplorerVersion((version) => version + 1);
     setGitVersion((version) => version + 1);
-    if (paths.some((path) => /(^|\/)(package\.json|Cargo\.toml|pnpm-lock\.yaml|yarn\.lock)$/.test(path))) setTasksVersion((version) => version + 1);
+    if (paths.some((path) => /(^|\/)(package\.json|Cargo\.toml|pom\.xml|pnpm-lock\.yaml|yarn\.lock)$/.test(path))) setTasksVersion((version) => version + 1);
     for (const path of new Set(paths)) {
       if (!tabsRef.current.some((tab) => tab.path === path && !tab.external)) continue;
       let queue = fileRefreshes.current.get(path);
@@ -927,7 +960,13 @@ export default function App() {
       const dirty = tabsRef.current.filter((tab) => !tab.external && tab.content !== tab.savedContent
         && deleting.some((operation) => pathContains(operation.path, tab.path)));
       const details = dirty.length ? `\n\nLe modifiche non salvate in ${dirty.map((tab) => tab.name).join(", ")} andranno perse.` : "";
-      if (!window.confirm(`Eliminare definitivamente ${deleting.map((operation) => operation.path).join(", ")}? Le cartelle saranno eliminate con tutto il loro contenuto.${details}`)) return null;
+      if (!(await confirmAction({
+        title: "Elimina elementi",
+        message: `Verranno eliminati definitivamente: ${deleting.map((operation) => operation.path).join(", ")}. Le cartelle saranno eliminate con tutto il loro contenuto.${details}`,
+        confirmLabel: "Elimina",
+        danger: true,
+      }))) return null;
+      if (fileMutationRef.current) return null;
     }
     fileMutationRef.current = requestedWorkspace;
     cancelAutosaves();
@@ -956,7 +995,7 @@ export default function App() {
       setReveal((current) => current && !result.deleted.some((path) => pathContains(path, current.path))
         ? { ...current, path: movedPath(current.path, result.moves) } : null);
       setDiffPath((current) => current && !result.deleted.some((path) => pathContains(path, current)) ? movedPath(current, result.moves) : null);
-      setShowDiff(false);
+      setDiffMode(false);
       setDiagnostics({});
       setBuildDiagnostics([]);
       refreshSidebar();
@@ -1008,7 +1047,7 @@ export default function App() {
         setReveal(null);
         setDiagnostics({});
         setBuildDiagnostics([]);
-        setShowDiff(false);
+        setDiffMode(false);
         setShowHistory(activeViewRef.current === "git");
         setDiffPath(null);
         if (nextWorkspace) {
@@ -1020,7 +1059,7 @@ export default function App() {
         refreshSidebar();
       })),
       register(onFsChanged((payload) => {
-        if (payload.workspace && normalPath(payload.workspace) !== normalPath(workspaceRef.current)) return;
+        if (payload.workspace && !sameWorkspace(payload.workspace, workspaceRef.current)) return;
         handleFsChanged(payload.paths);
       })),
     ]).catch((error: unknown) => notify(String(error)));
@@ -1078,12 +1117,11 @@ export default function App() {
     setDiffPath(path);
     setActivePath(null);
     setShowHistory(false);
-    setShowDiff(true);
+    setDiffMode(true);
     if (!git.changes.some((change) => change.path === path && change.label === "D")) void openFile(path);
   }, [openFile, git.changes]);
 
   const openExplorerFile = useCallback((path: string) => {
-    setShowDiff(false);
     setDiffPath(null);
     void openFile(path);
   }, [openFile]);
@@ -1120,8 +1158,8 @@ export default function App() {
             <div className="ide-workspace" style={{ display: mode === "ide" ? "flex" : "none" }}>
               <ActivityBar active={activeView} collapsed={sidebarCollapsed} modifiedCount={git.changes.length} problemCount={errorCount + warningCount} onSelect={toggleView} terminalOpen={terminalOpen} onToggleTerminals={() => setTerminalOpen((current) => !current)} />
               <aside className="project-sidebar" style={{ width: sidebarWidth, display: sidebarCollapsed ? "none" : "flex" }} aria-label="Pannello del progetto">
-                <SidebarHeader view={activeView} onCreate={(kind) => setExplorerCreateRequest((current) => ({ id: current.id + 1, kind }))} onRefresh={refreshSidebar} />
-                <div className="sidebar-content" hidden={activeView !== "explorer"}><FileExplorer createRequest={explorerCreateRequest} onCreated={refreshSidebar} workspace={workspace} version={explorerVersion} changes={changePaths} activePath={activePath} onOpen={openExplorerFile} onMutate={mutateFiles} revealRequest={explorerReveal} /></div>
+                <SidebarHeader view={activeView} onCreate={(kind) => setExplorerCreateRequest((current) => ({ id: current.id + 1, kind }))} onRefresh={refreshSidebar} onCollapseAll={() => setExplorerCollapseRequest((value) => value + 1)} />
+                <div className="sidebar-content" hidden={activeView !== "explorer"}><FileExplorer createRequest={explorerCreateRequest} collapseRequest={explorerCollapseRequest} onCreated={refreshSidebar} workspace={workspace} version={explorerVersion} changes={changePaths} activePath={activePath} onOpen={openExplorerFile} onMutate={mutateFiles} revealRequest={explorerReveal} /></div>
                 <div className="sidebar-content" hidden={activeView !== "search"}><SearchPanel workspace={workspace} active={activeView === "search" && !sidebarCollapsed && mode === "ide" && !showProjects} tabs={tabs} version={explorerVersion} focusRequest={searchFocus} disabled={mutatingFiles} onOpenAt={openAt} onReplace={replaceInProject} /></div>
                 <div className="sidebar-content" hidden={activeView !== "git"}><GitPanel workspace={workspace} status={git} activePath={activePath} onReveal={revealInExplorer} onDiff={openDiff} onRevert={revertFile} onRevertAll={revertAll} onRefresh={refreshSidebar} onBeforeMerge={canMerge} onNotify={notify} /></div>
                 <div className="sidebar-content" hidden={activeView !== "build"}><BuildPanel problemsRequest={problemsRequest} workspace={workspace} version={tasksVersion} diagnostics={diagnostics} onDiagnosticsChange={setBuildDiagnostics} onBeforeRun={saveBeforeBuild} onOpenAt={openAt} /></div>
@@ -1133,13 +1171,15 @@ export default function App() {
                     {tabs.length === 0 && <span className="editor-placeholder">Editor</span>}
                     {tabs.map((tab) => {
                       const change = changePaths.get(normalPath(tab.path));
+                      const showTabDiff = showDiff && comparedPath === tab.path;
                       return (
                         <div key={tab.path} className={`file-tab ${tab.path === activePath ? "is-active" : ""}`}
                           onAuxClick={(event) => { if (event.button === 1) { event.preventDefault(); closeTab(tab.path); } }}
                           onMouseDown={(event) => { if (event.button === 1) event.preventDefault(); }}>
-                          <button type="button" role="tab" aria-selected={tab.path === activePath} title={tab.path} onClick={() => { setActivePath(tab.path); setDiffPath(null); setShowDiff(false); setShowHistory(false); }} className="file-tab-select">
+                          <button type="button" role="tab" aria-selected={tab.path === activePath} title={showTabDiff ? `${tab.path} · Diff (sola lettura)` : tab.path} onClick={() => { setActivePath(tab.path); setDiffPath(null); setShowHistory(false); }} className="file-tab-select">
                             <FileTypeIcon path={tab.path} className="h-[18px] w-[18px] shrink-0" />
                             <span className="max-w-[160px] truncate">{tab.name}</span>
+                            {showTabDiff && <span className="file-tab-diff" title="Diff in sola lettura" aria-label="Diff in sola lettura">Diff</span>}
                             {change && <span className={`change-dot change-${change}`} title={CHANGE_LABELS[change]} aria-label={CHANGE_LABELS[change]} />}
                           </button>
                           <button type="button" className="file-tab-close" title={`Chiudi ${tab.name}`} aria-label={`Chiudi ${tab.name}`} onClick={() => closeTab(tab.path)}><XIcon className="h-3.5 w-3.5" /></button>
@@ -1147,15 +1187,17 @@ export default function App() {
                       );
                     })}
                   </div>
-                  {comparedPath && <button type="button" disabled={!git.isRepo} aria-pressed={showDiff} onClick={() => setShowDiff((current) => !current)} className={`diff-toggle ${showDiff ? "is-active" : ""}`} title={git.isRepo ? "Confronta il file corrente con Git HEAD" : "Il progetto non è un repository Git"}><GitBranchIcon className="h-4 w-4" /><span>Diff</span></button>}
+                  {comparedPath && <button type="button" disabled={!git.isRepo} aria-pressed={diffMode} onClick={() => setDiffMode((current) => !current)} className={`diff-toggle ${diffMode ? "is-active" : ""}`} title={git.isRepo ? "Mostra le differenze dei file modificati (sola lettura)" : "Il progetto non è un repository Git"}><GitBranchIcon className="h-4 w-4" /><span>Diff</span></button>}
                 </div>}
                 {!historyVisible && activeTab && !(showDiff && comparedPath) && <div className="file-breadcrumb"><span>{activeTab.path.split("/").slice(0, -1).join(" / ")}</span><span className="text-[var(--secondary)]">{activeTab.name}</span>{dirtyPaths.has(activeTab.path) && <button type="button" className="ml-auto text-[var(--accent)]" onClick={() => void saveTab(activeTab.path)}>Salva <kbd>Ctrl S</kbd></button>}</div>}
                 <div className={`editor-content ${showDiff && comparedPath ? "with-diff" : ""}`}>
                   <div className="editor-document" hidden={historyVisible}>
-                    {showDiff && comparedPath && <div className="diff-header"><GitBranchIcon className="h-4 w-4" /><span>Differenze · HEAD</span><button type="button" className="ml-auto icon-button" title="Chiudi differenze" aria-label="Chiudi differenze" onClick={() => setShowDiff(false)}><XIcon className="h-3.5 w-3.5" /></button></div>}
                     <div className="editor-fill">{ideOpened && <Suspense fallback={<div className="panel-empty">Apertura editor…</div>}><EditorPane workspace={workspace} locked={mutatingFiles} tab={activeTab} diagnostics={activeDiagnostics} reveal={reveal} onChange={handleChange} onSave={(path) => void saveTab(path)} onNavigate={openSymbol} onScroller={setEditorScroller} /></Suspense>}</div>
                   </div>
-                  {showDiff && comparedPath && <section className="diff-document" aria-label="Differenze del file rispetto a Git"><GitDiff workspace={workspace} path={comparedPath} content={activeTab?.content} version={gitVersion} onScroller={setDiffScroller} /></section>}
+                  {showDiff && comparedPath && <section className="diff-document" aria-label="Differenze del file rispetto a Git (sola lettura)">
+                    <div className="diff-header"><GitBranchIcon className="h-4 w-4" /><span>Differenze · HEAD</span><span className="diff-readonly">Sola lettura</span><button type="button" className="ml-auto icon-button" title="Chiudi differenze" aria-label="Chiudi differenze" onClick={() => { setDiffMode(false); setDiffPath(null); }}><XIcon className="h-3.5 w-3.5" /></button></div>
+                    <GitDiff workspace={workspace} path={comparedPath} content={activeTab?.content} version={gitVersion} onScroller={setDiffScroller} />
+                  </section>}
                   {historyVisible && <GitHistory key={workspace} workspace={workspace} version={gitVersion} refreshToken={gitHistoryVersion} busy={gitSpinning} onBusyChange={handleGitHistoryBusy} onRefreshStart={startGitSpin} onCherryPick={cherryPickCommit} onNotify={notify} />}
                 </div>
                 <TerminalPanel key={workspace} open={terminalOpen} active={mode === "ide" && !showProjects} createRequest={newTerminalRequest} focusRequest={terminalFocusRequest} onHide={hideTerminals} />
@@ -1214,6 +1256,7 @@ export default function App() {
       {settingsOpen && <SettingsModal prefs={prefs} onChange={updatePrefs} onReset={restorePrefs} onClose={() => setSettingsOpen(false)} />}
       {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
       {closeConfirmOpen && <CloseConfirmModal warning={agentAlive ? AGENT_CLOSE_WARNING : null} onConfirm={confirmClose} onCancel={cancelClose} />}
+      <ConfirmHost />
       {showSplash && <SplashScreen isReady={appReady} onFinish={finishSplash} />}
       {toast && <div role="status" className="app-toast">{toast}<button type="button" className="icon-button ml-3" onClick={() => setToast(null)} title="Chiudi notifica" aria-label="Chiudi notifica"><XIcon className="h-3.5 w-3.5" /></button></div>}
     </div>

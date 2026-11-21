@@ -83,6 +83,14 @@ export function RefreshIcon({ className }: IconProps) {
   );
 }
 
+export function CollapseAllIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="m8 3-4 4 4 4M16 3l4 4-4 4M4 15h16" />
+    </svg>
+  );
+}
+
 export function TerminalIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} aria-hidden="true">

@@ -52,7 +52,7 @@ export function UpdateMenu({ autoCheck, hasUnsavedChanges, onSaveAll }: Props) {
           aria-label="Controlla aggiornamenti"
           aria-expanded={open}
         >
-          <StatusSyncIcon className={`h-4.5 w-4.5 ${status === "checking" ? "animate-spin text-[var(--accent)]" : ""}`} />
+          <StatusSyncIcon className={`h-4.5 w-4.5 ${status === "checking" ? "text-[var(--accent)]" : ""}`} />
           {available && <span className="pointer-events-none absolute -top-0.5 -right-0.5 h-2 w-2 animate-pulse rounded-full bg-[var(--accent)] ring-2 ring-[var(--chrome)]" />}
         </button>
 
@@ -62,7 +62,7 @@ export function UpdateMenu({ autoCheck, hasUnsavedChanges, onSaveAll }: Props) {
             <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-80 rounded-xl border border-[color-mix(in_srgb,var(--overlay)_10%,transparent)] bg-[var(--color-elevated)] p-3.5 text-left shadow-2xl">
               <div className="mb-3 flex items-center justify-between border-b border-[color-mix(in_srgb,var(--overlay)_10%,transparent)] pb-2">
                 <div className="flex items-center gap-2">
-                  <StatusSyncIcon className={`h-4 w-4 text-[var(--secondary)] ${status === "checking" ? "animate-spin text-[var(--accent)]" : ""}`} />
+                  <StatusSyncIcon className={`h-4 w-4 ${status === "checking" ? "text-[var(--accent)]" : "text-[var(--secondary)]"}`} />
                   <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text)]">Aggiornamenti</span>
                 </div>
                 <span className="rounded-md bg-[color-mix(in_srgb,var(--overlay)_5%,transparent)] px-1.5 py-0.5 font-mono text-[11px] font-medium text-[var(--muted)]">v{currentVersion}</span>

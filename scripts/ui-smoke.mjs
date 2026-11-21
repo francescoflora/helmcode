@@ -532,12 +532,9 @@ try {
   await until(`document.querySelector('.file-tab-select[aria-selected="true"]')?.title === 'scroll-fixture.txt'`, 'Scroll fixture opened');
   await evaluate(`document.querySelector('.diff-toggle').click()`);
   await until(`document.querySelector('.git-diff table')?.textContent.includes('added line')`, 'Long diff ready');
-  await evaluate(`(() => { const left = document.querySelector('.cm-scroller'); left.scrollTop = Math.round((left.scrollHeight - left.clientHeight) / 2); left.dispatchEvent(new Event('scroll')); })()`);
-  await until(`(() => { const right = document.querySelector('.git-diff .scroll-area'); return Math.abs(right.scrollTop - Math.round((right.scrollHeight - right.clientHeight) / 2)) <= 2; })()`, 'Editor scroll syncs the diff');
-  await evaluate(`(() => { const right = document.querySelector('.git-diff .scroll-area'); right.scrollTop = Math.round((right.scrollHeight - right.clientHeight) * 0.25); right.dispatchEvent(new Event('scroll')); })()`);
-  await until(`(() => { const left = document.querySelector('.cm-scroller'); return Math.abs(left.scrollTop - Math.round((left.scrollHeight - left.clientHeight) * 0.25)) <= 3; })()`, 'Diff scroll syncs the editor');
-  await evaluate(`(() => { const right = document.querySelector('.git-diff .scroll-area'); right.scrollLeft = 180; right.dispatchEvent(new Event('scroll')); })()`);
-  await until(`document.querySelector('.cm-scroller').scrollLeft >= 179`, 'Horizontal scroll stays in sync');
+  await until(`!!document.querySelector('.diff-readonly')`, 'Diff is marked read-only');
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.editor-document')).display`), 'none', 'Diff hides the editor');
+  assert.equal(await evaluate(`document.querySelector('.file-tab-select[aria-selected="true"]')?.title.includes('Diff (sola lettura)')`), true, 'Active tab marks the diff as read-only');
   await evaluate(`document.querySelector('button[title="Chiudi differenze"]').click(); window.__qaLongDiff = false`);
   await evaluate(`Array.from(document.querySelectorAll('.tree-row')).find(row => row.title === 'src/main.ts').click()`);
   await until(`document.querySelector('.file-tab-select[aria-selected="true"]')?.title === 'src/main.ts'`, 'Original file restored after scroll sync');
@@ -1216,7 +1213,7 @@ try {
   await evaluate(`window.setTimeout = window.__qaOriginalSetTimeout; window.__qaFailReplace = false;`);
   const result = { errors, unknownCommands: await evaluate(`window.__qaUnknown`), checks: ['helmcode two-color wordmark', 'AGENT and HELM mode labels', 'title bar at 1100px', 'full-height close target on both screens', 'close hover color', '22px activity icons and 13px file list', 'projects at 760px and 720px without horizontal overflow', 'settings fit 460px window height', 'open files', 'edit and save', 'deduplicated modified count', 'shared Git badge', 'AGENT session and HELM editor preserved', 'no nested terminal panels', 'current file Git diff', 'branch checkout', 'streamed build', 'compile warnings and source navigation', 'build results retained across views', 'Projects startup preserves window position with and without splash', 'window centers only on screen changes'] };
   result.checks.push('AGENT loading waits for visible terminal output, ignores ANSI setup and unrelated sessions', 'AGENT loading survives view switches without restarting a ready session', 'AGENT startup errors and early exits dismiss loading, retry starts a new loader');
-  result.checks.push('editor and diff panes share vertical and horizontal scrolling in both directions');
+  result.checks.push('Diff shows only the read-only diff (editor hidden) and the active tab and header mark it as read-only');
   result.checks.push('normal startup shows splash without blur or fade and respects the saved preference', 'menu windows open Projects without ever mounting splash, including with delayed startup flags');
   result.checks.push('light theme applies before first native window show', 'dark, light and live System appearance controls persist selections', 'theme switches preserve editor content and live PTY sessions', 'light editor, diff, branch menu and Projects render coherently', 'appearance settings fit compact windows');
   result.checks.push('late watcher events from old workspaces cannot reload current files', 'file event bursts run only one read at a time and superseded responses cannot replace editor content');
