@@ -1,19 +1,19 @@
 import { createRoot } from "react-dom/client";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import App from "./App";
 import { getResolvedTheme, startAppearance, subscribeTheme } from "./lib/appearance";
 import { isTauri } from "./lib/tauri";
+import { setNativeTheme } from "./lib/window";
 import "./styles.css";
 import "@xterm/xterm/css/xterm.css";
 
 startAppearance();
 if (isTauri()) {
-  const setNativeTheme = (theme: "dark" | "light") => {
-    void getCurrentWindow().setTheme(theme).catch(() => undefined);
+  const syncNativeTheme = (theme: "dark" | "light") => {
+    void setNativeTheme(theme);
   };
-  setNativeTheme(getResolvedTheme());
-  subscribeTheme(setNativeTheme);
+  syncNativeTheme(getResolvedTheme());
+  subscribeTheme(syncNativeTheme);
 }
 
 const container = document.getElementById("root");

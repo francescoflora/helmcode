@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import { readStored, writeStored } from "../lib/storage";
 import type { TerminalTab } from "../types";
-import { PencilIcon, PlusIcon, MaximizeIcon, RefreshIcon, RestoreIcon, TerminalIcon, TrashIcon, XIcon } from "./Icons";
+import { ArrowUpIcon, PencilIcon, PlusIcon, RefreshIcon, RestoreIcon, TerminalIcon, TrashIcon, XIcon } from "./Icons";
 
 const TerminalSession = lazy(() => import("./TerminalSession").then((module) => ({ default: module.TerminalSession })));
 
@@ -113,7 +113,7 @@ export function TerminalPanel({ open, active, createRequest, focusRequest, onHid
           <button type="button" className="icon-button" onClick={create} aria-label="Nuovo terminale" title="Nuovo terminale (Ctrl+Shift+`)"><PlusIcon className="h-[18px] w-[18px]" /></button>
           <button type="button" className="icon-button" disabled={!selected} onClick={() => selected && startRename(selected)} aria-label="Rinomina terminale" title="Rinomina terminale"><PencilIcon className="h-4 w-4" /></button>
           <button type="button" className="icon-button" disabled={!selected} onClick={() => selected && close(selected.id)} aria-label="Chiudi terminale attivo" title="Chiudi terminale attivo"><TrashIcon className="h-4 w-4" /></button>
-          <button type="button" className="icon-button" aria-pressed={maximized} onClick={() => setMaximized((value) => !value)} aria-label={maximized ? "Ripristina terminale" : "Espandi terminale"} title={maximized ? "Ripristina terminale" : "Espandi terminale"}>{maximized ? <RestoreIcon className="h-4 w-4" /> : <MaximizeIcon className="h-4 w-4" />}</button>
+          <button type="button" className="icon-button" aria-pressed={maximized} onClick={() => setMaximized((value) => !value)} aria-label={maximized ? "Ripristina terminale" : "Espandi terminale"} title={maximized ? "Ripristina terminale" : "Espandi terminale"}>{maximized ? <RestoreIcon className="h-4 w-4" /> : <ArrowUpIcon className="h-4 w-4" />}</button>
           <button type="button" className="icon-button" onClick={onHide} aria-label="Nascondi terminali" title="Nascondi terminali (Ctrl+`)"><XIcon className="h-[18px] w-[18px]" /></button>
         </div>
       </header>

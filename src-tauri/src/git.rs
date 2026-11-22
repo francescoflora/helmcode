@@ -499,16 +499,16 @@ pub fn revert_file(workspace: &Path, path: &str) -> Result<()> {
     let head_exists = run(workspace, &["rev-parse", "--verify", "HEAD"]).is_ok();
     let in_head = head_exists && !run(workspace, &["ls-tree", "--full-tree", "-z", "HEAD", "--", &git_path])?.is_empty();
     if in_head {
-        run(workspace, &["checkout", "HEAD", "--", &git_path])?;
+        run(workspace, &["checkout", "HEAD", "--", &normalized])?;
         return Ok(());
     }
-    if run(workspace, &["ls-files", "--error-unmatch", "--", &git_path]).is_ok() {
+    if run(workspace, &["ls-files", "--error-unmatch", "--", &normalized]).is_ok() {
         let mut args = if head_exists {
             vec!["reset", "-q", "HEAD", "--"]
         } else {
             vec!["rm", "--cached", "--force", "--"]
         };
-        args.push(git_path.as_str());
+        args.push(normalized.as_str());
         run(workspace, &args)?;
     }
     if absolute.exists() {
@@ -887,6 +887,11 @@ fn strip_prefix(path: &str, prefix: &str) -> Option<String> {
 
 fn run(workspace: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let mut command = Command::new("git");
+    // Limit literal pathspecs to commands receiving file selections. Applying it
+    // to stash also changes its internal cleanup commands for untracked files.
+    if matches!(args.first().copied(), Some("add" | "checkout" | "ls-files" | "ls-tree" | "reset" | "rm" | "clean")) {
+        command.arg("--literal-pathspecs");
+    }
     command
         .arg("-C")
         .arg(workspace)
@@ -1350,6 +1355,87 @@ mod tests {
         checkout(&local.0, "origin/feature", true).unwrap();
         assert!(branches(&local.0).unwrap().iter().any(|branch| branch.name == "feature" && branch.current));
         assert!(checkout(&local.0, "origin/missing", true).is_err());
+    }
+
+    #[test]
+    fn revert_uses_literal_paths_and_preserves_other_files() {
+        let repo = Repository::new();
+        fs::write(repo.0.join("[a].txt"), "bracket original").unwrap();
+        fs::write(repo.0.join("a.txt"), "plain original").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+        run(&repo.0, &["commit", "-m", "initial"]).unwrap();
+        fs::write(repo.0.join("[a].txt"), "bracket changed").unwrap();
+        fs::write(repo.0.join("a.txt"), "plain changed").unwrap();
+
+        revert_file(&repo.0, "[a].txt").unwrap();
+
+        assert_eq!(fs::read_to_string(repo.0.join("[a].txt")).unwrap(), "bracket original");
+        assert_eq!(fs::read_to_string(repo.0.join("a.txt")).unwrap(), "plain changed");
+        let changes = status(&repo.0).changes;
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path, "a.txt");
+    }
+
+    #[test]
+    fn resolve_conflict_stages_only_the_literal_path() {
+        let repo = Repository::new();
+        fs::write(repo.0.join("[a].txt"), "bracket original").unwrap();
+        fs::write(repo.0.join("a.txt"), "plain original").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+        run(&repo.0, &["commit", "-m", "initial"]).unwrap();
+        fs::write(repo.0.join("a.txt"), "unrelated edit").unwrap();
+
+        resolve_conflict(&repo.0, "[a].txt", "resolved").unwrap();
+
+        let changes = status(&repo.0).changes;
+        let selected = changes.iter().find(|change| change.path == "[a].txt").unwrap();
+        let other = changes.iter().find(|change| change.path == "a.txt").unwrap();
+        assert!(selected.staged);
+        assert!(!other.staged, "Resolving one file must not stage another file's edits");
+        assert_eq!(fs::read_to_string(repo.0.join("a.txt")).unwrap(), "unrelated edit");
+    }
+
+    #[test]
+    fn revert_in_nested_workspace_preserves_root_files_with_the_same_name() {
+        let repo = Repository::new();
+        let nested = repo.0.join("nested");
+        fs::create_dir(&nested).unwrap();
+        fs::write(repo.0.join("tracked.txt"), "root original").unwrap();
+        fs::write(nested.join("tracked.txt"), "nested original").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+        run(&repo.0, &["commit", "-m", "initial"]).unwrap();
+        fs::write(repo.0.join("tracked.txt"), "root changed").unwrap();
+        fs::write(nested.join("tracked.txt"), "nested changed").unwrap();
+
+        revert_file(&nested, "tracked.txt").unwrap();
+
+        assert_eq!(fs::read_to_string(nested.join("tracked.txt")).unwrap(), "nested original");
+        assert_eq!(fs::read_to_string(repo.0.join("tracked.txt")).unwrap(), "root changed");
+        let changes = status(&repo.0).changes;
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path, "tracked.txt");
+    }
+
+    #[test]
+    fn revert_staged_new_file_in_nested_workspace_keeps_root_file_staged() {
+        let repo = Repository::new();
+        let nested = repo.0.join("nested");
+        fs::create_dir(&nested).unwrap();
+        fs::write(repo.0.join("base.txt"), "initial").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+        run(&repo.0, &["commit", "-m", "initial"]).unwrap();
+        fs::write(repo.0.join("new.txt"), "root staged").unwrap();
+        fs::write(nested.join("new.txt"), "nested staged").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+
+        revert_file(&nested, "new.txt").unwrap();
+
+        assert!(!nested.join("new.txt").exists());
+        assert_eq!(fs::read_to_string(repo.0.join("new.txt")).unwrap(), "root staged");
+        let changes = status(&repo.0).changes;
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path, "new.txt");
+        assert!(changes[0].staged);
     }
 
     #[test]
