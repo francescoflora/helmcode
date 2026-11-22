@@ -9,7 +9,7 @@ type Props = {
 
 export function SplashScreen({ isReady, onFinish }: Props) {
   const [version, setVersion] = useState(APP_VERSION_FALLBACK);
-  const mountedAt = useRef(Date.now());
+  const mountedAt = useRef<number | null>(null);
   const finished = useRef(false);
 
   useEffect(() => {
@@ -19,14 +19,17 @@ export function SplashScreen({ isReady, onFinish }: Props) {
   useEffect(() => {
     const MIN_MS = 1200;
     const MAX_MS = 2800;
+    const startedAt = mountedAt.current ?? Date.now();
+    mountedAt.current = startedAt;
+    const elapsed = Date.now() - startedAt;
     const finish = () => {
       if (finished.current) return;
       finished.current = true;
       onFinish();
     };
-    const safety = window.setTimeout(finish, MAX_MS);
+    const safety = window.setTimeout(finish, Math.max(0, MAX_MS - elapsed));
     let minimum: number | undefined;
-    if (isReady) minimum = window.setTimeout(finish, Math.max(0, MIN_MS - (Date.now() - mountedAt.current)));
+    if (isReady) minimum = window.setTimeout(finish, Math.max(0, MIN_MS - elapsed));
     return () => {
       window.clearTimeout(safety);
       if (minimum !== undefined) window.clearTimeout(minimum);

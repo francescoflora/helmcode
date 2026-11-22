@@ -36,7 +36,7 @@ import { useSyncedScroll } from "./lib/syncScroll";
 import { createCoalescedRequest } from "./lib/coalescedRequest";
 import { applyDiskRefresh, sameGitStatus } from "./lib/workspaceRefresh";
 import { buildChangeMap, CHANGE_LABELS, gitNeedsAttention } from "./lib/gitStatus";
-import { applyAppWindowSize, applyStartWindowSize, closeWindow, onCloseRequested, setWindowTitle, showWindow, useWindowMaximized, useWorkspaceWindowSize } from "./lib/window";
+import { applyAppWindowSize, applyStartWindowSize, closeWindow, onCloseRequested, scheduleAfterPaint, setWindowTitle, showWindow, useWindowMaximized, useWorkspaceWindowSize } from "./lib/window";
 import { APP_NAME } from "./lib/appinfo";
 import type { ActivityView, FileOperation, GitStatus, LspDiagnostic, ReplaceRequest, ReplaceResult, RevealRequest, Tab, TerminalTab, WorkspaceMode, WorkspaceMutation } from "./types";
 import { basename, makeTab } from "./types";
@@ -83,6 +83,7 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const closeConfirmedRef = useRef(false);
+  const closingRef = useRef(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
   const initialPrefs = useRef(prefs);
@@ -158,8 +159,7 @@ export default function App() {
   const historyVisible = showHistory && git.isRepo;
   historyVisibleRef.current = historyVisible;
   const changePaths = useMemo(() => buildChangeMap(git.changes, { includeDeleted: false }), [git]);
-  const activeChanged = Boolean(activeTab && !activeTab.external && changePaths.has(normalPath(activeTab.path)));
-  const showDiff = Boolean(diffMode && !historyVisible && comparedPath && (activeChanged || (!activeTab && diffPath)));
+  const showDiff = Boolean(diffMode && !historyVisible && comparedPath && git.isRepo);
   const gitBusy = fetchingGit || gitStatusBusy || gitHistoryBusy;
   const refreshGitHistory = useCallback(() => {
     if (!historyVisibleRef.current) return;
@@ -220,28 +220,6 @@ export default function App() {
     const timer = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(timer);
   }, [toast]);
-  useEffect(() => {
-    if (!isTauri()) return;
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void onCloseRequested((event) => {
-      if (closeConfirmedRef.current || !prefs.confirmClose) return;
-      event.preventDefault();
-      setCloseConfirmOpen(true);
-    }).then((cleanup) => {
-      if (disposed) cleanup();
-      else unlisten = cleanup;
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [prefs.confirmClose]);
-  const confirmClose = useCallback(() => {
-    closeConfirmedRef.current = true;
-    setCloseConfirmOpen(false);
-    void closeWindow().catch(() => { closeConfirmedRef.current = false; });
-  }, []);
   const cancelClose = useCallback(() => setCloseConfirmOpen(false), []);
   useEffect(() => { if (mode === "ide") setIdeOpened(true); }, [mode]);
   useEffect(() => writeStored("helmcode.view", activeView), [activeView]);
@@ -296,12 +274,16 @@ export default function App() {
   }, [notify]);
 
   useEffect(() => {
-    if (!appReady || showSplash) return;
+    if (!appReady || showSplash !== false || !isTauri()) return;
     const nextScreen = showProjects || !workspace ? "projects" : "workspace";
     if (windowScreen.current === nextScreen) return;
-    windowScreen.current = nextScreen;
-    if (nextScreen === "projects") void applyStartWindowSize();
-    else void applyAppWindowSize();
+    // A click effect can run before paint; draw the destination screen before
+    // expanding the native window. Cleanup cancels a superseded transition.
+    return scheduleAfterPaint(() => {
+      windowScreen.current = nextScreen;
+      if (nextScreen === "projects") void applyStartWindowSize();
+      else void applyAppWindowSize();
+    });
   }, [appReady, showSplash, showProjects, workspace]);
 
   useEffect(() => {
@@ -437,11 +419,11 @@ export default function App() {
 
   const saveContent = useCallback(async (path: string, content: string) => {
     const tab = tabsRef.current.find((item) => item.path === path);
-    if (!tab || tab.external) return;
+    if (!tab || tab.external) return false;
     const savedWorkspace = workspaceRef.current;
     try {
       await api.saveFile(savedWorkspace, path, content);
-      if (workspaceRef.current !== savedWorkspace) return;
+      if (workspaceRef.current !== savedWorkspace) return false;
       // Even a save of unchanged text supersedes any disk read already in flight.
       fileRefreshes.current.get(path)?.dispose();
       fileRefreshes.current.delete(path);
@@ -454,8 +436,10 @@ export default function App() {
       syncSavedFile(savedWorkspace, path, content);
       setExplorerVersion((version) => version + 1);
       setGitVersion((version) => version + 1);
+      return true;
     } catch (error) {
       notify(String(error));
+      return false;
     }
   }, [notify, syncSavedFile]);
 
@@ -500,20 +484,36 @@ export default function App() {
     await saveContent(path, tab.content);
   }, [cancelAutosaves, saveContent]);
 
-  const closeTab = useCallback((path: string) => {
-    if (fileMutationRef.current) return;
+  const closeTab = useCallback(async (path: string, options?: { discard?: boolean }) => {
+    if (fileMutationRef.current && !options?.discard) return;
     const tab = tabsRef.current.find((item) => item.path === path);
+    if (!tab) return;
+    const closedWorkspace = workspaceRef.current;
     cancelAutosaves(path);
-    if (tab && !tab.external && tab.content !== tab.savedContent) {
-      void api.saveFile(workspaceRef.current, path, tab.content).catch(() => undefined);
+    if (!options?.discard && !tab.external) {
+      if (tab.content !== tab.savedContent && !(await saveContent(path, tab.content))) return;
+      try {
+        await api.flushSaves();
+      } catch (error) {
+        notify(`Salvataggio non riuscito: ${String(error)}`);
+        return;
+      }
+      if (workspaceRef.current !== closedWorkspace || fileMutationRef.current) return;
+      const current = tabsRef.current.find((item) => item.path === path);
+      if (!current) return;
+      if (current.content !== tab.content || current.content !== current.savedContent) {
+        notify("La scheda contiene nuove modifiche ed è rimasta aperta.");
+        return;
+      }
     }
     const remaining = tabsRef.current.filter((item) => item.path !== path);
     fileRefreshes.current.get(path)?.dispose();
     fileRefreshes.current.delete(path);
-    if (!tab?.external) void closeIntelligence(workspaceRef.current, path).catch(() => undefined);
+    if (!tab.external) void closeIntelligence(closedWorkspace, path).catch(() => undefined);
     if ((activePathRef.current ?? diffPathRef.current) === path) {
       setDiffPath(null);
     }
+    tabsRef.current = remaining;
     setTabs(remaining);
     setDiagnostics((current) => {
       const next = { ...current };
@@ -521,39 +521,91 @@ export default function App() {
       return next;
     });
     setActivePath((current) => current === path ? remaining[remaining.length - 1]?.path ?? null : current);
+  }, [cancelAutosaves, notify, saveContent]);
+
+  const handleFsChanged = useCallback((paths: string[]) => {
+    if (fileMutationRef.current) { paths.forEach((path) => deferredFsChanges.current.add(path)); return; }
+    const changedWorkspace = workspaceRef.current;
+    setExplorerVersion((version) => version + 1);
+    setGitVersion((version) => version + 1);
+    if (paths.some((path) => /(^|\/)(package\.json|Cargo\.toml|pom\.xml|pnpm-lock\.yaml|yarn\.lock)$/.test(path))) setTasksVersion((version) => version + 1);
+    for (const path of new Set(paths)) {
+      if (!tabsRef.current.some((tab) => tab.path === path && !tab.external)) continue;
+      let queue = fileRefreshes.current.get(path);
+      if (!queue) {
+        queue = createCoalescedRequest(async () => {
+          const snapshot = tabsRef.current.find((tab) => tab.path === path && !tab.external);
+          if (!snapshot || workspaceRef.current !== changedWorkspace) return null;
+          return { snapshot, disk: await api.readFile(path) };
+        }, (result) => {
+          if (!result || workspaceRef.current !== changedWorkspace) return;
+          if (fileMutationRef.current) { deferredFsChanges.current.add(path); return; }
+          setTabs((current) => applyDiskRefresh(current, result.snapshot, result.disk));
+        });
+        fileRefreshes.current.set(path, queue);
+      }
+      // Only one disk read per file can run, even during a sustained event burst.
+      queue.request();
+    }
   }, []);
+
+  const finishRevert = useCallback((requestedWorkspace: string) => {
+    fileMutationRef.current = null;
+    setMutatingFiles(false);
+    const pending = [...deferredFsChanges.current];
+    deferredFsChanges.current.clear();
+    if (workspaceRef.current !== requestedWorkspace) return;
+    if (pending.length) handleFsChanged(pending);
+    for (const tab of tabsRef.current) {
+      if (!tab.external && tab.content !== tab.savedContent) scheduleAutosave(tab.path, tab.content);
+    }
+  }, [handleFsChanged, scheduleAutosave]);
 
   const revertFile = useCallback(async (path: string, untracked: boolean) => {
     if (fileMutationRef.current) return;
+    const requestedWorkspace = workspaceRef.current;
     if (!(await confirmAction({
       title: untracked ? "Elimina file non tracciato" : "Scarta le modifiche",
       message: untracked ? `Il file ${path} verrà eliminato definitivamente.` : `${path} tornerà alla versione di HEAD.`,
       confirmLabel: untracked ? "Elimina" : "Scarta",
       danger: true,
     }))) return;
-    const requestedWorkspace = workspaceRef.current;
+    if (fileMutationRef.current || workspaceRef.current !== requestedWorkspace) return;
+    fileMutationRef.current = requestedWorkspace;
+    setMutatingFiles(true);
+    cancelAutosaves();
+    let reverted = false;
     try {
+      await api.flushSaves();
+      if (workspaceRef.current !== requestedWorkspace) return;
       await api.gitRevertFile(requestedWorkspace, path);
       if (workspaceRef.current !== requestedWorkspace) return;
+      reverted = true;
       if (tabsRef.current.some((tab) => tab.path === path)) {
-        if (untracked) closeTab(path);
+        if (untracked) await closeTab(path, { discard: true });
         else {
           const text = await api.readFile(path);
           if (workspaceRef.current !== requestedWorkspace) return;
-          setTabs((current) => current.map((tab) => tab.path === path ? { ...tab, content: text, savedContent: text, revision: tab.revision + 1 } : tab));
+          const updated = tabsRef.current.map((tab) => tab.path === path ? { ...tab, content: text, savedContent: text, revision: tab.revision + 1 } : tab);
+          tabsRef.current = updated;
+          setTabs(updated);
         }
       }
       setExplorerVersion((version) => version + 1);
       setGitVersion((version) => version + 1);
     } catch (error) {
+      if (reverted && workspaceRef.current === requestedWorkspace) await closeTab(path, { discard: true });
       notify(String(error));
+    } finally {
+      finishRevert(requestedWorkspace);
     }
-  }, [closeTab, notify]);
+  }, [cancelAutosaves, closeTab, finishRevert, notify]);
 
   const revertAll = useCallback(async () => {
     if (fileMutationRef.current) return;
     const changes = git.changes;
     if (!changes.length) return;
+    const requestedWorkspace = workspaceRef.current;
     const untracked = changes.filter((change) => change.untracked).length;
     const tracked = changes.length - untracked;
     const summary = `${tracked} ${tracked === 1 ? "file ripristinato" : "file ripristinati"}, ${untracked} ${untracked === 1 ? "file non tracciato eliminato" : "file non tracciati eliminati"}`;
@@ -563,22 +615,29 @@ export default function App() {
       confirmLabel: "Scarta tutto",
       danger: true,
     }))) return;
-    const requestedWorkspace = workspaceRef.current;
+    if (fileMutationRef.current || workspaceRef.current !== requestedWorkspace) return;
+    fileMutationRef.current = requestedWorkspace;
+    setMutatingFiles(true);
+    cancelAutosaves();
     try {
+      await api.flushSaves();
+      if (workspaceRef.current !== requestedWorkspace) return;
       await api.gitRevertAll(requestedWorkspace);
       if (workspaceRef.current !== requestedWorkspace) return;
       const changed = new Map(changes.map((change) => [change.path, change]));
       for (const tab of tabsRef.current.filter((item) => !item.external && changed.has(item.path))) {
         if (changed.get(tab.path)?.untracked) {
-          closeTab(tab.path);
+          await closeTab(tab.path, { discard: true });
           continue;
         }
         try {
           const text = await api.readFile(tab.path);
           if (workspaceRef.current !== requestedWorkspace) return;
-          setTabs((current) => current.map((item) => item.path === tab.path ? { ...item, content: text, savedContent: text, revision: item.revision + 1 } : item));
+          const updated = tabsRef.current.map((item) => item.path === tab.path ? { ...item, content: text, savedContent: text, revision: item.revision + 1 } : item);
+          tabsRef.current = updated;
+          setTabs(updated);
         } catch {
-          closeTab(tab.path);
+          await closeTab(tab.path, { discard: true });
         }
       }
       setExplorerVersion((version) => version + 1);
@@ -586,15 +645,16 @@ export default function App() {
       notify(`Modifiche scartate: ${summary}.`);
     } catch (error) {
       notify(String(error));
+    } finally {
+      finishRevert(requestedWorkspace);
     }
-  }, [closeTab, git.changes, notify]);
+  }, [cancelAutosaves, closeTab, finishRevert, git.changes, notify]);
 
   const saveBeforeBuild = useCallback(async () => {
     if (fileMutationRef.current) { notify("Attendi il completamento dell’operazione sui file."); return false; }
     cancelAutosaves();
     const savedWorkspace = workspaceRef.current;
     const dirty = tabsRef.current.filter((tab) => !tab.external && tab.content !== tab.savedContent);
-    if (!dirty.length) return true;
     const results = await Promise.allSettled(dirty.map((tab) => api.saveFile(savedWorkspace, tab.path, tab.content)));
     if (workspaceRef.current !== savedWorkspace) return false;
     dirty.forEach((tab, index) => {
@@ -604,19 +664,68 @@ export default function App() {
         syncSavedFile(savedWorkspace, tab.path, tab.content);
       }
     });
-    const updated = tabsRef.current.map((tab) => {
-      const index = dirty.findIndex((item) => item.path === tab.path);
-      return index >= 0 && results[index].status === "fulfilled"
-        ? { ...tab, savedContent: dirty[index].content } : tab;
-    });
-    tabsRef.current = updated;
-    setTabs(updated);
-    setGitVersion((version) => version + 1);
-    setExplorerVersion((version) => version + 1);
+    if (dirty.length) {
+      const updated = tabsRef.current.map((tab) => {
+        const index = dirty.findIndex((item) => item.path === tab.path);
+        return index >= 0 && results[index].status === "fulfilled"
+          ? { ...tab, savedContent: dirty[index].content } : tab;
+      });
+      tabsRef.current = updated;
+      setTabs(updated);
+      setGitVersion((version) => version + 1);
+      setExplorerVersion((version) => version + 1);
+    }
+    try {
+      await api.flushSaves();
+    } catch (error) {
+      notify(`Salvataggio non riuscito: ${String(error)}`);
+      return false;
+    }
+    if (workspaceRef.current !== savedWorkspace || fileMutationRef.current) return false;
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected") { notify(`Salvataggio non riuscito: ${String(failure.reason)}`); return false; }
+    if (tabsRef.current.some((tab) => !tab.external && tab.content !== tab.savedContent)) {
+      notify("Sono presenti nuove modifiche. Attendi il salvataggio e riprova.");
+      return false;
+    }
     return true;
   }, [cancelAutosaves, notify, syncSavedFile]);
+
+  const confirmClose = useCallback(async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setCloseConfirmOpen(false);
+    try {
+      if (!(await saveBeforeBuild())) return;
+      closeConfirmedRef.current = true;
+      await closeWindow();
+    } catch (error) {
+      closeConfirmedRef.current = false;
+      notify(`Chiusura non riuscita: ${String(error)}`);
+    } finally {
+      closingRef.current = false;
+    }
+  }, [notify, saveBeforeBuild]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void onCloseRequested((event) => {
+      if (closeConfirmedRef.current) return;
+      event.preventDefault();
+      if (closingRef.current) return;
+      if (prefs.confirmClose) setCloseConfirmOpen(true);
+      else void confirmClose();
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    }).catch((error: unknown) => notify(String(error)));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [confirmClose, notify, prefs.confirmClose]);
 
   const canCheckout = useCallback(async () => saveBeforeBuild(), [saveBeforeBuild]);
   const canMerge = useCallback(async () => saveBeforeBuild(), [saveBeforeBuild]);
@@ -875,32 +984,6 @@ export default function App() {
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", stop);
   }, [sidebarWidth]);
-
-  const handleFsChanged = useCallback((paths: string[]) => {
-    if (fileMutationRef.current) { paths.forEach((path) => deferredFsChanges.current.add(path)); return; }
-    const changedWorkspace = workspaceRef.current;
-    setExplorerVersion((version) => version + 1);
-    setGitVersion((version) => version + 1);
-    if (paths.some((path) => /(^|\/)(package\.json|Cargo\.toml|pom\.xml|pnpm-lock\.yaml|yarn\.lock)$/.test(path))) setTasksVersion((version) => version + 1);
-    for (const path of new Set(paths)) {
-      if (!tabsRef.current.some((tab) => tab.path === path && !tab.external)) continue;
-      let queue = fileRefreshes.current.get(path);
-      if (!queue) {
-        queue = createCoalescedRequest(async () => {
-          const snapshot = tabsRef.current.find((tab) => tab.path === path && !tab.external);
-          if (!snapshot || workspaceRef.current !== changedWorkspace) return null;
-          return { snapshot, disk: await api.readFile(path) };
-        }, (result) => {
-          if (!result || workspaceRef.current !== changedWorkspace) return;
-          if (fileMutationRef.current) { deferredFsChanges.current.add(path); return; }
-          setTabs((current) => applyDiskRefresh(current, result.snapshot, result.disk));
-        });
-        fileRefreshes.current.set(path, queue);
-      }
-      // Only one disk read per file can run, even during a sustained event burst.
-      queue.request();
-    }
-  }, []);
 
   const replaceInProject = useCallback(async (request: ReplaceRequest): Promise<ReplaceResult> => {
     if (fileMutationRef.current) throw new Error("Attendi il completamento dell'operazione in corso.");

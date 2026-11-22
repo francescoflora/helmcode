@@ -348,6 +348,12 @@ pub fn detect(workspace: &Path) -> WorkspaceTasks {
         }
     }
 
+    result.tasks.sort_by_key(|task| match task.kind.as_str() {
+        "build" => 0,
+        "play" => 1,
+        _ => 2,
+    });
+
     result
 }
 
@@ -469,6 +475,8 @@ mod tests {
         assert_eq!(tasks.build.unwrap().command, "npm run build");
         assert_eq!(tasks.play.unwrap().command, "npm run dev");
         assert!(tasks.tasks.iter().any(|task| task.id == "cargo:tauri:build" && task.command == "cargo build --manifest-path src-tauri/Cargo.toml"));
+        let kinds: Vec<&str> = tasks.tasks.iter().map(|task| task.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["build", "build", "play", "play", "test"]);
         fs::remove_dir_all(directory).ok();
     }
 

@@ -1,5 +1,6 @@
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { getCurrentWindow, type CloseRequestedEvent } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow, type CloseRequestedEvent } from "@tauri-apps/api/window";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { isTauri } from "./tauri";
@@ -11,6 +12,8 @@ export const APP_WINDOW_SIZE = { width: 1280, height: 800 };
 export const APP_MIN_SIZE = { width: 1100, height: 700 };
 
 const APP_WINDOW_SIZE_KEY = "helmcode.window.workspace";
+let resizeQueue = Promise.resolve();
+let nativeThemeQueue = Promise.resolve();
 
 export function normalizeWindowSize(stored: unknown): { width: number; height: number } {
   const entry = (stored && typeof stored === "object" ? stored : {}) as { width?: unknown; height?: unknown };
@@ -56,8 +59,27 @@ export function startResize(direction: ResizeDirection): Promise<void> {
   return getCurrentWindow().startResizeDragging(direction);
 }
 
-export function showWindow(): Promise<void> {
-  return getCurrentWindow().show();
+async function waitForNativeTheme(): Promise<void> {
+  let pending: Promise<void>;
+  do {
+    pending = nativeThemeQueue;
+    await pending;
+  } while (pending !== nativeThemeQueue);
+}
+
+/** Keep the native window and webview canvas in the same theme as the UI. */
+export function setNativeTheme(theme: "dark" | "light"): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
+  nativeThemeQueue = nativeThemeQueue.then(async () => {
+    await getCurrentWindow().setTheme(theme).catch(() => undefined);
+    await getCurrentWebviewWindow().setBackgroundColor(theme === "light" ? "#ffffff" : "#1e1e1e").catch(() => undefined);
+  });
+  return nativeThemeQueue;
+}
+
+export async function showWindow(): Promise<void> {
+  await waitForNativeTheme();
+  await getCurrentWindow().show();
 }
 
 export function setWindowTitle(title: string): void {
@@ -65,24 +87,64 @@ export function setWindowTitle(title: string): void {
   void getCurrentWindow().setTitle(title).catch(() => undefined);
 }
 
-export async function applyWindowSize(
+/** Allow a committed screen to paint before changing the native viewport. */
+export function scheduleAfterPaint(callback: () => void): () => void {
+  let frame = requestAnimationFrame(() => {
+    frame = requestAnimationFrame(callback);
+  });
+  return () => cancelAnimationFrame(frame);
+}
+
+async function availableWindowSize(): Promise<{ width: number; height: number } | null> {
+  const monitor = await currentMonitor().catch(() => null);
+  if (monitor && Number.isFinite(monitor.scaleFactor) && monitor.scaleFactor > 0) {
+    const width = monitor.workArea.size.width / monitor.scaleFactor;
+    const height = monitor.workArea.size.height / monitor.scaleFactor;
+    if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+      return { width: Math.max(1, Math.floor(width)), height: Math.max(1, Math.floor(height)) };
+    }
+  }
+  const screen = typeof window === "undefined" ? undefined : window.screen;
+  if (screen && Number.isFinite(screen.availWidth) && screen.availWidth > 0 && Number.isFinite(screen.availHeight) && screen.availHeight > 0) {
+    return { width: Math.max(1, Math.floor(screen.availWidth)), height: Math.max(1, Math.floor(screen.availHeight)) };
+  }
+  return null;
+}
+
+export function applyWindowSize(
   width: number,
   height: number,
   minWidth: number,
   minHeight: number,
 ): Promise<void> {
-  if (!isTauri()) return;
-  try {
-    const window = getCurrentWindow();
-    if (await window.isMaximized().catch(() => false)) {
-      await window.unmaximize().catch(() => undefined);
+  if (!isTauri()) return Promise.resolve();
+  resizeQueue = resizeQueue.then(async () => {
+    try {
+      await waitForNativeTheme();
+      const appWindow = getCurrentWindow();
+      const available = await availableWindowSize();
+      const minimum = {
+        width: Math.min(minWidth, available?.width ?? minWidth),
+        height: Math.min(minHeight, available?.height ?? minHeight),
+      };
+      const target = {
+        width: Math.min(Math.max(minimum.width, Math.round(width)), available?.width ?? Infinity),
+        height: Math.min(Math.max(minimum.height, Math.round(height)), available?.height ?? Infinity),
+      };
+      if (await appWindow.isMaximized().catch(() => false)) {
+        await appWindow.unmaximize().catch(() => undefined);
+      }
+      // Raising the minimum first would expand the compact window before the target resize.
+      // Removing it also lets a larger workspace shrink back to Projects without clamping.
+      await appWindow.setMinSize(null);
+      await appWindow.setSize(new LogicalSize(target.width, target.height));
+      await appWindow.setMinSize(new LogicalSize(minimum.width, minimum.height));
+      await appWindow.center();
+    } catch (error) {
+      console.warn("Impossibile ridimensionare la finestra", error);
     }
-    await window.setMinSize(new LogicalSize(minWidth, minHeight));
-    await window.setSize(new LogicalSize(width, height));
-    await window.center();
-  } catch (error) {
-    console.warn("Impossibile ridimensionare la finestra", error);
-  }
+  });
+  return resizeQueue;
 }
 
 export function applyStartWindowSize(): Promise<void> {

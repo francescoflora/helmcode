@@ -254,13 +254,12 @@ export function BuildPanel({ workspace, version, diagnostics, onOpenAt, onDiagno
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col">
-                {selected ? <><div className="build-result"><span className={selected.state === "failed" ? "text-[var(--danger)]" : selected.state === "success" ? "text-[var(--accent)]" : "text-[var(--secondary)]"}>{runLabel(selected)}</span><span className="truncate text-[var(--muted)]">{selected.task.command}</span></div><pre ref={outputRef} className="scroll-area build-output">{selectedOutput || (selected.state === "running" ? "Avvio…" : "Nessun output.")}</pre></> : <div className="panel-empty"><BuildIcon className="h-5 w-5 text-[var(--muted)]" /><span>Pronto per la prossima build</span><p>Scegli Build o Avvia; imposta i task predefiniti dalla lista del progetto.</p></div>}
+                {selected ? <><div className="build-result"><div className="flex items-start gap-2"><span className="min-w-0 flex-1"><span className={`block ${selected.state === "failed" ? "text-[var(--danger)]" : selected.state === "success" ? "text-[var(--accent)]" : "text-[var(--secondary)]"}`}>{runLabel(selected)}</span><span className="block truncate text-[var(--muted)]">{selected.task.command}</span></span>{selected.state !== "running" && <button type="button" title="Rimuovi risultato" aria-label="Rimuovi risultato" className="icon-button shrink-0" onClick={() => { setRuns((current) => current.filter((run) => run.id !== selected.id)); setSelectedId(runs.filter((run) => run.id !== selected.id).at(-1)?.id ?? null); }}><XIcon className="h-4.5 w-4.5" /></button>}</div></div><pre ref={outputRef} className="scroll-area build-output">{selectedOutput || (selected.state === "running" ? "Avvio…" : "Nessun output.")}</pre></> : <div className="panel-empty"><BuildIcon className="h-5 w-5 text-[var(--muted)]" /><span>Pronto per la prossima build</span><p>Scegli Build o Avvia; imposta i task predefiniti dalla lista del progetto.</p></div>}
               </div>
             )}
           </>}
         </div>
       </div>
-      <div className="build-footnote"><span className="h-1 w-1 rounded-full bg-[var(--accent)]/60" />{running ? "Processo in esecuzione" : "Output e problemi del progetto"}{selected && selected.state !== "running" && <button type="button" title="Rimuovi risultato" aria-label="Rimuovi risultato" className="icon-button ml-auto shrink-0" onClick={() => { setRuns((current) => current.filter((run) => run.id !== selected.id)); setSelectedId(runs.filter((run) => run.id !== selected.id).at(-1)?.id ?? null); }}><XIcon className="h-4.5 w-4.5" /></button>}</div>
     </div>
   );
 }

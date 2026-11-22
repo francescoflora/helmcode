@@ -1,4 +1,43 @@
-# Efficienza e stabilità: verifica del 17 novembre 2026
+# Efficienza e stabilità
+
+## Revisione del 21 novembre 2026
+
+- **Finestre:** il passaggio Progetti/workspace attende un frame disegnato prima
+  del resize. Le richieste sono serializzate e le transizioni superate vengono
+  cancellate; il vincolo minimo viene applicato dopo la dimensione finale per
+  evitare un'espansione intermedia. Dimensioni salvate e minime rispettano
+  l'area utile del monitor e il suo fattore di scala.
+- **Tema nativo:** finestra e WebView usano lo stesso sfondo dell'interfaccia.
+  La sincronizzazione termina prima di mostrare o ridimensionare la finestra.
+- **Salvataggi:** chiusura di schede e finestra attendono le scritture pendenti.
+  Errori e nuove modifiche durante il salvataggio conservano il buffer aperto;
+  il cambio progetto viene fermato se restano modifiche da salvare.
+- **Ripristino Git:** nomi come `[a].txt` sono trattati come percorsi letterali,
+  senza coinvolgere `a.txt`. Il ripristino funziona anche aprendo un workspace
+  da una sottocartella del repository. L'autosave viene sospeso e le scritture
+  pendenti completate prima del ripristino, poi riprendono per i buffer residui.
+- **Diff:** il comando apre il confronto anche senza una modifica già rilevata
+  dallo stato Git, mostrando l'esito del confronto effettivo.
+- **Verifiche UI:** aggiornati i test alle conferme personalizzate e alle
+  scorciatoie correnti; conteggi per file e attese del rendering evitano
+  interferenze fra autosalvataggi e controlli su altre operazioni.
+
+Verifiche: **157 test JavaScript**, **134 test Rust**, **82 controlli UI**,
+build TypeScript/Vite e build desktop con frontend incorporato. Il lint termina
+senza errori; restano avvisi React e di analisi statica preesistenti.
+
+La prova nativa Windows usa un profilo e una cartella temporanei separati:
+760×500 → 1280×800 → 760×500, nei temi scuro e chiaro, con un solo evento di
+ridimensionamento per passaggio. Verificato anche il salvataggio delle ultime
+battute chiudendo immediatamente la finestra. Il monitor reale era a scala 1,
+con area utile 1920×1032; monitor piccoli e HiDPI sono coperti dai test simulati.
+
+Resta utile separare la gestione di documenti e operazioni workspace da
+`App.tsx`, mantenendo le regressioni sulla concorrenza, e limitare la raccolta
+dei risultati di ricerca per nome nelle directory molto grandi preservando
+l'ordinamento dei risultati.
+
+## Verifica del 17 novembre 2026
 
 Questa passata riguarda concorrenza, code e risorse. Le verifiche riproducono
 raffiche di eventi, risposte obsolete, chiusura dei server e processi figli che

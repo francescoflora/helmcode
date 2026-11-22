@@ -99,6 +99,10 @@ try {
     throw new Error(`Timed out: ${label}`);
   };
   const clickText = text => evaluate(`Array.from(document.querySelectorAll('button')).find(b => b.offsetWidth && (b.textContent.trim() === ${JSON.stringify(text)} || (b.classList.contains('mode-button') && b.querySelector('span')?.textContent.trim() === ${JSON.stringify(text)})))?.click()`);
+  const confirmProjectChange = async () => {
+    await until(`document.querySelector('#confirm-title')?.textContent === 'Cambia progetto'`, 'Project switch confirmation');
+    await clickText('Cambia progetto');
+  };
   const screenshot = async name => {
     const result = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     await writeFile(path.join(root, '.qa', name), Buffer.from(result.data, 'base64'));
@@ -145,12 +149,25 @@ try {
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `
     (() => {
       localStorage.clear(); localStorage.setItem('helmcode.mode', '"ide"');
+      if (new URLSearchParams(location.search).has('agentMode')) localStorage.setItem('helmcode.mode', '"ai"');
       if (new URLSearchParams(location.search).has('noSplash')) localStorage.setItem('helmcode.start.splash', 'false');
       if (new URLSearchParams(location.search).has('splashEnabled')) localStorage.setItem('helmcode.start.splash', 'true');
       if (new URLSearchParams(location.search).has('lightTheme')) localStorage.setItem('helmcode.appearance.theme', '"light"');
       const callbacks = new Map(), listeners = new Map(); let nextId = 0;
       window.__qaCalls = []; window.__qaUnknown = [];
       window.__qaSplashSeen = false;
+      window.__qaWindowSize = { width: 760, height: 500 };
+      window.__qaResizes = [];
+      let workspaceFrames = 0, projectsFrames = 0, paintedScreen = null;
+      const sampleScreens = () => {
+        const visible = selector => !!document.querySelector(selector)?.getBoundingClientRect().width;
+        if (!visible('.splash-screen')) {
+          if (visible('.app-frame')) { workspaceFrames++; paintedScreen = 'workspace'; }
+          if (visible('.start-screen')) { projectsFrames++; paintedScreen = 'projects'; }
+        }
+        requestAnimationFrame(sampleScreens);
+      };
+      requestAnimationFrame(sampleScreens);
       new MutationObserver(records => {
         for (const record of records) for (const node of record.addedNodes) {
           if (node.nodeType === 1 && (node.matches('.splash-screen') || node.querySelector('.splash-screen'))) window.__qaSplashSeen = true;
@@ -173,7 +190,35 @@ try {
           if (command === 'plugin:event|listen') { const id = ++nextId; listeners.set(id, args); return id; }
           if (command === 'plugin:event|unlisten') { listeners.delete(args.eventId); return; }
           if (command === 'plugin:window|is_maximized') return false;
-          if (command === 'plugin:window|show') { window.__qaThemeAtShow = document.documentElement.dataset.theme; return; }
+          if (command === 'plugin:window|current_monitor') {
+            const small = new URLSearchParams(location.search).has('smallMonitor');
+            const size = small ? { width: 1280, height: 720 } : { width: 1920, height: 1080 };
+            return { name: 'QA monitor', scaleFactor: small ? 1.25 : 1, position: { x: 0, y: 0 }, size, workArea: { position: { x: 0, y: 0 }, size } };
+          }
+          if (command === 'plugin:window|set_size') {
+            const value = args.value.toJSON?.() ?? args.value;
+            const size = value.Logical ?? value.Physical;
+            window.__qaWindowSize = { width: size.width, height: size.height };
+            window.__qaResizes.push({ ...window.__qaWindowSize, cause: 'size', workspaceFrames, projectsFrames, paintedScreen,
+              splash: !!document.querySelector('.splash-screen'), background: window.__qaWebviewBackground });
+            return;
+          }
+          if (command === 'plugin:window|set_min_size' && args.value) {
+            const value = args.value.toJSON?.() ?? args.value;
+            const minimum = value.Logical ?? value.Physical;
+            if (minimum.width > window.__qaWindowSize.width || minimum.height > window.__qaWindowSize.height) {
+              window.__qaWindowSize = { width: Math.max(minimum.width, window.__qaWindowSize.width), height: Math.max(minimum.height, window.__qaWindowSize.height) };
+              window.__qaResizes.push({ ...window.__qaWindowSize, cause: 'minimum' });
+            }
+            return;
+          }
+          if (command === 'plugin:window|set_background_color') { window.__qaWindowBackground = args.value; return; }
+          if (command === 'plugin:webview|set_webview_background_color') { window.__qaWebviewBackground = args.value; return; }
+          if (command === 'plugin:window|show') {
+            window.__qaThemeAtShow = document.documentElement.dataset.theme;
+            window.__qaBackgroundAtShow = { window: window.__qaWindowBackground, webview: window.__qaWebviewBackground };
+            return;
+          }
           if (command.startsWith('plugin:window|')) return;
           if (command.startsWith('plugin:updater|')) return null;
           if (command === 'plugin:app|version') return '0.1.0';
@@ -357,6 +402,7 @@ try {
   await until(`window.__qaCalls.some(c => c.command === 'git_fetch' && c.args.expectedWorkspace === 'C:/Projects/helmcode')`, 'Project startup fetches remote updates');
   const opensBeforeDirect = await evaluate(`window.__qaCalls.filter(c => c.command === 'open_workspace').length`);
   await evaluate(`document.querySelector('.recent-row button').click()`);
+  await confirmProjectChange();
   await until(`!document.querySelector('.start-screen')`, 'recent opens directly from the Projects screen');
   assert.equal(await evaluate(`window.__qaCalls.filter(c => c.command === 'open_workspace').length`), opensBeforeDirect + 1, 'Recent project opens in the current window');
   const fetchesBeforeReopen = await evaluate(`window.__qaCalls.filter(c => c.command === 'git_fetch').length`);
@@ -369,6 +415,7 @@ try {
   await until(`!!document.querySelector('.start-screen')`, 'projects screen after direct open');
   const opensBeforeFolder = await evaluate(`window.__qaCalls.filter(c => c.command === 'open_workspace').length`);
   await evaluate(`document.querySelector('.start-action-primary').click()`);
+  await confirmProjectChange();
   await until(`!document.querySelector('.start-screen')`, 'folder opens directly from the Projects screen');
   assert.equal(await evaluate(`window.__qaCalls.filter(c => c.command === 'open_workspace').length`), opensBeforeFolder + 1, 'Projects folder picker applies the workspace immediately');
   assert.equal(await evaluate(`!document.querySelector('.window-choice')`), true, 'No window choice for the folder picker on the Projects screen');
@@ -654,7 +701,11 @@ try {
   await until(`getComputedStyle(document.querySelector('.ide-workspace')).display !== 'none' && document.querySelector('.build-view-tabs button[aria-selected="true"]')?.textContent.includes('Problemi')`, 'Combined Problems button opens HELM Problems from AGENT and Output');
   await screenshot('statusbar.png');
   assert.equal(await evaluate(`window.__qaCalls.filter(c => c.command === 'pty_create').length`), 1, 'AGENT session created once');
-  assert.equal(await evaluate(`window.__qaCalls.filter(c => c.command === 'plugin:window|center').length`), 7, 'Window centers only when switching between Projects and workspace');
+  const screenResizes = await evaluate(`window.__qaResizes`);
+  assert.ok(screenResizes.length >= 3, 'Projects and workspace transitions resize the native window');
+  assert.ok(screenResizes.every(resize => resize.cause === 'size' && !resize.splash), 'No intermediate expansion or resize behind the splash');
+  assert.deepEqual(screenResizes.map(resize => resize.paintedScreen), screenResizes.map((_, index) => index % 2 ? 'projects' : 'workspace'), 'Only painted screen changes resize the window');
+  assert.equal(await evaluate(`window.__qaCalls.filter(c => c.command === 'plugin:window|center').length`), screenResizes.length, 'Each native size change centers once');
   assert.deepEqual(await evaluate(`window.__qaUnknown`), [], 'Workspace IPC contracts covered');
   await evaluate(`document.querySelector('.activity-button:first-child').click()`);
   await until(`!!document.querySelector('.tree-row[title="index.html"] [data-file-kind]')`, 'File type icons in explorer');
@@ -774,9 +825,9 @@ try {
   await evaluate(`window.__qaExternalTarget = true`);
   await mouseSymbol('greet', 'greet();', 2);
   await until(`document.querySelector('.file-tab-select[aria-selected="true"]')?.title === 'C:/Libraries/External.java' && document.querySelector('.cm-content')?.getAttribute('contenteditable') === 'false'`, 'Dependency target opens read only');
-  const writesBeforeDependency = await evaluate(`window.__qaCalls.filter(call => call.command === 'save_file').length`);
+  const writesBeforeDependency = await evaluate(`window.__qaCalls.filter(call => call.command === 'save_file' && call.args.path === 'C:/Libraries/External.java').length`);
   await key('s', 'KeyS', 83, 2);
-  assert.equal(await evaluate(`window.__qaCalls.filter(call => call.command === 'save_file').length`), writesBeforeDependency, 'Dependency cannot be saved');
+  assert.equal(await evaluate(`window.__qaCalls.filter(call => call.command === 'save_file' && call.args.path === 'C:/Libraries/External.java').length`), writesBeforeDependency, 'Dependency cannot be saved');
   await evaluate(`document.querySelector('button[aria-label="Chiudi External.java"]').click(); window.__qaReadDelay = 500`);
   await openFixture('Main.java', 'class Main');
   const previousTargetReads = await evaluate(`window.__qaCalls.filter(call => call.command === 'lsp_read_target').length`);
@@ -895,10 +946,11 @@ try {
   })()`);
   await until(`!!document.querySelector('.tree-row[title="drop-target/main/One.java"]') && !document.querySelector('.tree-row[title="chain/java/main"]')`, 'Drag and drop moves compact folders with their descendants');
   await screenshot('explorer-file-operations.png');
-  await evaluate(`window.confirm = () => true`);
   await evaluate(`document.querySelector('.tree-row[title="drop-target/Moved.java"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 200, clientY: 240 }))`);
   await until(`!!document.querySelector('.explorer-context-menu')`, 'Context menu for delete');
   await evaluate(`Array.from(document.querySelectorAll('.explorer-context-menu button')).find(button => button.textContent.includes('Cancella')).click()`);
+  await until(`document.querySelector('#confirm-title')?.textContent === 'Elimina elementi'`, 'Delete confirmation');
+  await clickText('Elimina');
   await until(`!document.querySelector('.tree-row[title="drop-target/Moved.java"]')`, 'Context menu deletes files');
   await until(`!Array.from(document.querySelectorAll('.file-tab-select')).some(tab => tab.title === 'drop-target/Moved.java')`, 'Deleted file closes its tab');
   await clickText('AGENT');
@@ -929,11 +981,15 @@ try {
   await clickText('AGENT');
   await clickText('HELM');
   await evaluate(`document.querySelector('button[aria-label="Terminali"]').click()`);
+  await until(`document.querySelector('.terminal-panel')?.hidden === false`, 'Existing terminal panel is visible');
   assert.equal(await evaluate(`window.__qaCalls.filter(c => c.command === 'pty_create' && !c.args.agent).length`), 3, 'No shell restarts on panel or mode changes');
   await evaluate(`document.querySelector('.cm-content').focus()`);
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'T', code: 'KeyT', modifiers: 10, windowsVirtualKeyCode: 84 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'T', code: 'KeyT', modifiers: 10, windowsVirtualKeyCode: 84 });
-  await until(`document.activeElement?.classList.contains('xterm-helper-textarea')`, 'Ctrl+Shift+T focuses an already open terminal');
+  await until(`document.querySelector('.terminal-panel')?.hidden === true`, 'Ctrl+Shift+T hides an open terminal');
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'T', code: 'KeyT', modifiers: 10, windowsVirtualKeyCode: 84 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'T', code: 'KeyT', modifiers: 10, windowsVirtualKeyCode: 84 });
+  await until(`document.querySelector('.terminal-panel')?.hidden === false && document.activeElement?.classList.contains('xterm-helper-textarea')`, 'Ctrl+Shift+T reopens and focuses the existing terminal');
   const shellToClose = await evaluate(`document.querySelector('.terminal-pane:not([hidden])').dataset.sessionId`);
   await evaluate(`document.querySelector('button[aria-label="Chiudi terminale attivo"]').click()`);
   await until(`document.querySelectorAll('.terminal-tab').length === 2 && window.__qaCalls.some(c => c.command === 'pty_close' && c.args.id === ${JSON.stringify(shellToClose)})`, 'Closing terminal releases its PTY');
@@ -950,7 +1006,7 @@ try {
   await evaluate(`document.querySelector('[aria-label="Ridimensiona terminali"]').focus()`);
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38 });
-  assert.ok(await evaluate(`document.querySelector('.terminal-panel').getBoundingClientRect().height > ${terminalHeight}`), 'Terminal panel resizes using keyboard');
+  await until(`document.querySelector('.terminal-panel').getBoundingClientRect().height > ${terminalHeight}`, 'Terminal panel resizes using keyboard');
   assert.equal(await evaluate(`(() => { const panel = document.querySelector('.terminal-panel').getBoundingClientRect(); const bar = document.querySelector('.statusbar').getBoundingClientRect(); return panel.bottom <= bar.top + 1; })()`), true, 'Resized terminal stays above the status bar');
   await evaluate(`Array.from(document.querySelectorAll('.terminal-tab-close')).forEach(button => button.click())`);
   await until(`!!document.querySelector('.terminal-empty')`, 'Closing all terminals shows empty state');
@@ -1133,9 +1189,9 @@ try {
         return window.__TAURI_INTERNALS__.invoke('save_file', { path: 'notes.unknown', content: window.__qaReplaceText }).then(() => ({ count, documents: [{ path: 'notes.unknown', content: window.__qaReplaceText, savedContent: window.__qaReplaceText }] }));
       }
     };`);
-  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'H', code: 'KeyH', modifiers: 10, windowsVirtualKeyCode: 72 });
-  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'H', code: 'KeyH', modifiers: 10, windowsVirtualKeyCode: 72 });
-  await until(`!!document.querySelector('input[aria-label="Sostituisci con"]') && document.activeElement?.getAttribute('aria-label') === 'Cerca nel progetto'`, 'Ctrl Shift H expands replacement and focuses search');
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'R', code: 'KeyR', modifiers: 10, windowsVirtualKeyCode: 82 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'R', code: 'KeyR', modifiers: 10, windowsVirtualKeyCode: 82 });
+  await until(`!!document.querySelector('input[aria-label="Sostituisci con"]') && document.activeElement?.getAttribute('aria-label') === 'Cerca nel progetto'`, 'Ctrl Shift R expands replacement and focuses search');
   const fillSearch = async (label, value) => evaluate(`(() => { const input = document.querySelector('input[aria-label=${JSON.stringify(label)}]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   await fillSearch('Cerca nel progetto', 'needle');
   await fillSearch('Sostituisci con', 'thread');
@@ -1211,11 +1267,40 @@ try {
   assert.equal(await evaluate(`window.__qaCalls.filter(call => call.command === 'save_file').length`), savesBeforeConflict, 'Failed replacement never saves stale dirty buffers');
   assert.equal(await evaluate(`document.querySelector('.cm-content').textContent`), 'done done unsaved', 'Conflict preserves unsaved local text');
   await evaluate(`window.setTimeout = window.__qaOriginalSetTimeout; window.__qaFailReplace = false;`);
+  for (const query of ['?start&noSplash', '?start&noSplash&lightTheme', '?start&noSplash&agentMode', '?start&noSplash&agentMode&lightTheme', '?start&noSplash&smallMonitor']) {
+    await send('Emulation.setDeviceMetricsOverride', { width: 760, height: 500, deviceScaleFactor: 1, mobile: false });
+    await send('Page.navigate', { url: `http://127.0.0.1:${port}/${query}` });
+    await until(`!!document.querySelector('.start-screen') && window.__qaThemeAtShow !== undefined`, 'Projects ready before opening workspace');
+    const background = query.includes('lightTheme') ? '#ffffff' : '#1e1e1e';
+    assert.deepEqual(await evaluate(`window.__qaBackgroundAtShow`), { window: background, webview: background }, 'Native window and WebView match the theme before show');
+    await clickText('Apri progetto');
+    await until(`window.__qaCalls.some(call => call.command === 'open_workspace')`, 'Folder selected');
+    await evaluate(`window.__qaEmit('workspace-changed', 'C:/Projects')`);
+    await until(`window.__qaCalls.some(call => call.command === 'plugin:window|center')`, 'Workspace resize completed');
+    const resizes = await evaluate(`window.__qaResizes`);
+    assert.equal(resizes.length, 1, 'Expanding performs a single size change');
+    assert.equal(resizes[0].cause, 'size', 'Minimum constraints never cause an intermediate expansion');
+    assert.ok(resizes[0].workspaceFrames >= 1, 'Workspace has a painted frame before resizing');
+    assert.equal(resizes[0].paintedScreen, 'workspace');
+    assert.equal(resizes[0].splash, false);
+    assert.equal(resizes[0].background, background);
+    assert.deepEqual({ width: resizes[0].width, height: resizes[0].height }, query.includes('smallMonitor') ? { width: 1024, height: 576 } : { width: 1280, height: 800 });
+    await evaluate(`document.querySelector('.project-switcher-toggle').click()`);
+    await until(`!!document.querySelector('.project-menu-all')`, 'Project menu before returning to Projects');
+    await evaluate(`document.querySelector('.project-menu-all').click()`);
+    await until(`window.__qaCalls.filter(call => call.command === 'plugin:window|center').length === 2`, 'Return to Projects resized');
+    const restored = await evaluate(`window.__qaResizes`);
+    assert.equal(restored.length, 2);
+    assert.equal(restored[1].cause, 'size');
+    assert.equal(restored[1].paintedScreen, 'projects', 'Projects has a painted frame before shrinking');
+    assert.deepEqual({ width: restored[1].width, height: restored[1].height }, { width: 760, height: 500 });
+  }
   const result = { errors, unknownCommands: await evaluate(`window.__qaUnknown`), checks: ['helmcode two-color wordmark', 'AGENT and HELM mode labels', 'title bar at 1100px', 'full-height close target on both screens', 'close hover color', '22px activity icons and 13px file list', 'projects at 760px and 720px without horizontal overflow', 'settings fit 460px window height', 'open files', 'edit and save', 'deduplicated modified count', 'shared Git badge', 'AGENT session and HELM editor preserved', 'no nested terminal panels', 'current file Git diff', 'branch checkout', 'streamed build', 'compile warnings and source navigation', 'build results retained across views', 'Projects startup preserves window position with and without splash', 'window centers only on screen changes'] };
   result.checks.push('AGENT loading waits for visible terminal output, ignores ANSI setup and unrelated sessions', 'AGENT loading survives view switches without restarting a ready session', 'AGENT startup errors and early exits dismiss loading, retry starts a new loader');
   result.checks.push('Diff shows only the read-only diff (editor hidden) and the active tab and header mark it as read-only');
   result.checks.push('normal startup shows splash without blur or fade and respects the saved preference', 'menu windows open Projects without ever mounting splash, including with delayed startup flags');
   result.checks.push('light theme applies before first native window show', 'dark, light and live System appearance controls persist selections', 'theme switches preserve editor content and live PTY sessions', 'light editor, diff, branch menu and Projects render coherently', 'appearance settings fit compact windows');
+  result.checks.push('workspace and Projects paint before native resize in HELM and AGENT, dark and light', 'native resize has no intermediate minimum-size expansion', 'window and WebView backgrounds match the theme before show and resize', 'saved window dimensions and minimums fit small HiDPI monitor work areas');
   result.checks.push('late watcher events from old workspaces cannot reload current files', 'file event bursts run only one read at a time and superseded responses cannot replace editor content');
   result.checks.push('saving an unchanged file invalidates older disk reads even before the save watcher event arrives');
   result.checks.push('file and folder type icons share colors with editor tabs', 'open and closed folder glyphs differ', 'HTML tags, attributes, strings and embedded CSS/JavaScript have syntax colors', 'Python, YAML and TOML syntax colors', 'lazy parser preserves edits and undo history', 'language switching restores TypeScript and unknown files remain plain text');
