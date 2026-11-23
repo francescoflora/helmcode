@@ -25,8 +25,15 @@ export function normalizeWindowSize(stored: unknown): { width: number; height: n
   };
 }
 
+export function loadAppWindowState(): { width: number; height: number; maximized: boolean } {
+  const stored = readStored<unknown>(APP_WINDOW_SIZE_KEY, null);
+  const maximized = Boolean(stored && typeof stored === "object" && (stored as { maximized?: unknown }).maximized === true);
+  return { ...normalizeWindowSize(stored), maximized };
+}
+
 export function loadAppWindowSize(): { width: number; height: number } {
-  return normalizeWindowSize(readStored<unknown>(APP_WINDOW_SIZE_KEY, null));
+  const { width, height } = loadAppWindowState();
+  return { width, height };
 }
 
 export type ResizeDirection =
@@ -116,6 +123,7 @@ export function applyWindowSize(
   height: number,
   minWidth: number,
   minHeight: number,
+  maximize = false,
 ): Promise<void> {
   if (!isTauri()) return Promise.resolve();
   resizeQueue = resizeQueue.then(async () => {
@@ -139,7 +147,8 @@ export function applyWindowSize(
       await appWindow.setMinSize(null);
       await appWindow.setSize(new LogicalSize(target.width, target.height));
       await appWindow.setMinSize(new LogicalSize(minimum.width, minimum.height));
-      await appWindow.center();
+      if (maximize) await appWindow.maximize().catch(() => undefined);
+      else await appWindow.center();
     } catch (error) {
       console.warn("Impossibile ridimensionare la finestra", error);
     }
@@ -157,8 +166,8 @@ export function applyStartWindowSize(): Promise<void> {
 }
 
 export function applyAppWindowSize(): Promise<void> {
-  const { width, height } = loadAppWindowSize();
-  return applyWindowSize(width, height, APP_MIN_SIZE.width, APP_MIN_SIZE.height);
+  const { width, height, maximized } = loadAppWindowState();
+  return applyWindowSize(width, height, APP_MIN_SIZE.width, APP_MIN_SIZE.height, maximized);
 }
 
 export function useWorkspaceWindowSize(enabled: boolean): void {
@@ -170,10 +179,14 @@ export function useWorkspaceWindowSize(enabled: boolean): void {
     let unlisten: UnlistenFn | undefined;
 
     const persist = async () => {
-      if (disposed || (await appWindow.isMaximized().catch(() => false))) return;
+      if (disposed) return;
+      if (await appWindow.isMaximized().catch(() => false)) {
+        if (!disposed) writeStored(APP_WINDOW_SIZE_KEY, { ...normalizeWindowSize(readStored<unknown>(APP_WINDOW_SIZE_KEY, null)), maximized: true });
+        return;
+      }
       const scale = await appWindow.scaleFactor().catch(() => 1);
       const size = (await appWindow.innerSize()).toLogical(scale || 1);
-      if (!disposed) writeStored(APP_WINDOW_SIZE_KEY, { width: Math.round(size.width), height: Math.round(size.height) });
+      if (!disposed) writeStored(APP_WINDOW_SIZE_KEY, { width: Math.round(size.width), height: Math.round(size.height), maximized: false });
     };
     const schedule = () => {
       if (timer !== undefined) window.clearTimeout(timer);

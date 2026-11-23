@@ -55,6 +55,7 @@ function fakeWindow() {
     appWindow: {
       isMaximized: async () => false,
       unmaximize: async () => { calls.push(["unmaximize"]); },
+      maximize: async () => { calls.push(["maximize"]); },
       setMinSize: async (next) => {
         calls.push(["minimum", next ? { ...next } : null]);
         minimum = next ?? { width: 0, height: 0 };
@@ -77,6 +78,29 @@ test("invalid or missing workspace size falls back to the default", () => {
 test("workspace size is clamped to the minimum and rounded", () => {
   assert.deepEqual(windowLib.normalizeWindowSize({ width: 900, height: 600 }), windowLib.APP_MIN_SIZE);
   assert.deepEqual(windowLib.normalizeWindowSize({ width: 1600.4, height: 900.6 }), { width: 1600, height: 901 });
+});
+
+test("stored maximized flag is read alongside the size", () => {
+  const lib = loadWindowLib({ stored: { width: 1600, height: 900, maximized: true } });
+  assert.deepEqual(lib.loadAppWindowState(), { width: 1600, height: 900, maximized: true });
+  const legacy = loadWindowLib({ stored: { width: 1600, height: 900 } });
+  assert.deepEqual(legacy.loadAppWindowState(), { width: 1600, height: 900, maximized: false });
+});
+
+test("a maximized workspace is maximized again instead of centered", async () => {
+  const fixture = fakeWindow();
+  const lib = loadWindowLib({ native: true, appWindow: fixture.appWindow, stored: { width: 1280, height: 800, maximized: true } });
+  await lib.applyAppWindowSize();
+  assert.equal(fixture.calls.some((call) => call[0] === "maximize"), true);
+  assert.equal(fixture.calls.some((call) => call[0] === "center"), false);
+});
+
+test("a non-maximized workspace is resized and centered", async () => {
+  const fixture = fakeWindow();
+  const lib = loadWindowLib({ native: true, appWindow: fixture.appWindow, stored: { width: 1280, height: 800, maximized: false } });
+  await lib.applyAppWindowSize();
+  assert.equal(fixture.calls.some((call) => call[0] === "maximize"), false);
+  assert.equal(fixture.calls.some((call) => call[0] === "center"), true);
 });
 
 test("screen changes resize directly to each target without an intermediate minimum size", async () => {
