@@ -3,8 +3,9 @@ import { api } from "../lib/tauri";
 import { ancestorDirectories, compactDirectory, dropOperations, isWithin, loadDirectoryChain, parentDirectory, remapExplorerPath, topLevelEntries, visibleEntries } from "../lib/explorer";
 import { CHANGE_LABELS, type ChangeKind } from "../lib/gitStatus";
 import type { DirEntry, FileOperation, WorkspaceMutation } from "../types";
-import { CheckIcon, ChevronRightIcon, FilePlusIcon, FolderPickerIcon, PencilIcon, TrashIcon, XIcon } from "./Icons";
+import { CheckIcon, ChevronRightIcon, FilePlusIcon, FolderOpenIcon, FolderPickerIcon, PencilIcon, TrashIcon, XIcon } from "./Icons";
 import { FileTypeIcon } from "./FileTypeIcon";
+import { revealInExplorer } from "../lib/opener";
 
 const DRAG_TYPE = "application/x-helmcode-entries";
 const HOVER_EXPAND_DELAY = 600;
@@ -188,7 +189,13 @@ export function FileExplorer({ workspace, version, changes, activePath, onOpen, 
     contextTrigger.current = event.currentTarget as HTMLElement;
     setSelected(entry);
     if (!entry || !selectedPaths.has(entry.path)) setSelectedPaths(new Set(entry ? [entry.path] : []));
-    setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 240)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - (entry ? 180 : 100))), parent: destination(entry), entry });
+    setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 240)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - (entry ? 240 : 160))), parent: destination(entry), entry });
+  };
+  const revealEntry = (entry: DirEntry | null) => {
+    if (!workspace) return;
+    const absolute = entry ? `${workspace.replace(/[\\/]+$/, "")}/${entry.path}` : workspace;
+    setMenu(null);
+    void revealInExplorer(absolute).catch((reason: unknown) => setError(String(reason)));
   };
 
   const mutate = async (operations: FileOperation[]) => {
@@ -372,6 +379,8 @@ export function FileExplorer({ workspace, version, changes, activePath, onOpen, 
     }}>
       <button type="button" role="menuitem" onClick={() => beginCreate(menu.parent, "file")}><FilePlusIcon className="h-[18px] w-[18px]" />Nuovo file</button>
       <button type="button" role="menuitem" onClick={() => beginCreate(menu.parent, "folder")}><FolderPickerIcon className="h-[18px] w-[18px]" />Nuova cartella</button>
+      <div className="explorer-menu-separator" role="separator" />
+      <button type="button" role="menuitem" onClick={() => revealEntry(menu.entry)}><FolderOpenIcon className="h-[18px] w-[18px]" />Visualizza in Esplora file</button>
       {menu.entry && <><div className="explorer-menu-separator" role="separator" />
         <button type="button" role="menuitem" disabled={selection(menu.entry).length !== 1} onClick={() => beginRename(menu.entry!)}><PencilIcon className="h-[18px] w-[18px]" /><span>Rinomina</span><kbd>F2</kbd></button>
         <button type="button" role="menuitem" className="is-danger" onClick={() => void remove(menu.entry)}><TrashIcon className="h-[18px] w-[18px]" /><span>{selection(menu.entry).length > 1 ? `Cancella ${selection(menu.entry).length} elementi` : "Cancella"}</span><kbd>Del</kbd></button>

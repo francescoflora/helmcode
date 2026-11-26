@@ -149,6 +149,12 @@ export type MergeOutcome = {
   conflicts: string[];
 };
 
+export type CheckoutOutcome = {
+  switched: boolean;
+  needsDecision: boolean;
+  stashed: boolean;
+};
+
 export type RevealRequest = {
   path: string;
   line: number;
@@ -199,7 +205,8 @@ export type WorkspaceTasks = {
 };
 
 export function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
+  const clean = path.startsWith("jdt://") ? path.split(/[?#]/, 1)[0] : path;
+  const parts = clean.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? path;
 }
 

@@ -467,9 +467,27 @@ pub async fn lsp_read_target(app: AppHandle, expected_workspace: String, path: S
     tauri::async_runtime::spawn_blocking(move || {
         let state=app.state::<AppState>();
         if state.workspace_root() != std::path::Path::new(&expected_workspace) { return Err("Il progetto è cambiato: riprova".into()); }
+        if crate::lsp::is_virtual_jdt_uri(&path) {
+            let client = {
+                let manager=state.lsp.lock().map_err(|_|"LSP non disponibile".to_string())?;
+                manager.virtual_target(&path).map_err(|error|format!("{error:#}"))?
+            };
+            return client.read(&path).map_err(|error|format!("{error:#}"));
+        }
         let manager=state.lsp.lock().map_err(|_|"LSP non disponibile".to_string())?;
         manager.read_target(std::path::Path::new(&path)).map_err(|error|format!("{error:#}"))
     }).await.map_err(|error|error.to_string())?
+}
+
+#[tauri::command]
+pub async fn lsp_install_server(app: AppHandle, server_id: String) -> CommandResult<String> {
+    let message = crate::lsp::install_server(&app, &server_id)
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    if let Ok(mut manager) = app.state::<AppState>().lsp.lock() {
+        manager.clear_failures();
+    }
+    Ok(message)
 }
 
 fn restart_watcher(

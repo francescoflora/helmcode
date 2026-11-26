@@ -43,6 +43,7 @@ test("recognizes language filenames, Windows paths and upper-case extensions", (
     "Dockerfile.prod": "Dockerfile", "Containerfile": "Dockerfile", ".env.local": "Shell",
     ".zshrc": "Shell", ".editorconfig": "Properties files", "script.ps1": "PowerShell",
     "app.cs": "C#", "app.java": "Java", "app.go": "Go", "query.sql": "SQL",
+    "jdt://contents/java.base/java.lang/String.class?=app/jrt-fs.jar": "Java",
   };
   for (const [path, expected] of Object.entries(examples)) assert.equal(languageName(path), expected, path);
   for (const name of ["tsconfig.json", "tsconfig.app.json", "settings.jsonc", "config.json5", ".eslintrc"]) {

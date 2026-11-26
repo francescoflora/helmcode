@@ -104,6 +104,14 @@ pub struct MergeOutcome {
     pub conflicts: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutOutcome {
+    pub switched: bool,
+    pub needs_decision: bool,
+    pub stashed: bool,
+}
+
 pub fn branches(workspace: &Path) -> Result<Vec<GitBranch>> {
     let raw = run(workspace, &[
         "for-each-ref",
@@ -220,7 +228,7 @@ fn remote_local_name(workspace: &Path, remote_branch: &str) -> Result<String> {
     Ok(remote_branch[remote.len() + 1..].to_string())
 }
 
-pub fn checkout(workspace: &Path, branch: &str, remote: bool) -> Result<()> {
+fn switch_args(workspace: &Path, branch: &str, remote: bool) -> Result<Vec<String>> {
     let all = branches(workspace)?;
     if remote {
         let item = all.iter().find(|item| item.remote && item.name == branch)
@@ -230,18 +238,75 @@ pub fn checkout(workspace: &Path, branch: &str, remote: bool) -> Result<()> {
             bail!("Nome branch non valido: {local}");
         }
         if all.iter().any(|item| !item.remote && item.name == local) {
-            run(workspace, &["switch", "--", &local])?;
+            Ok(vec!["switch".into(), "--".into(), local])
         } else {
-            run(workspace, &["switch", "--track", "-c", &local, &item.name])?;
+            Ok(vec!["switch".into(), "--track".into(), "-c".into(), local, item.name.clone()])
         }
     } else {
         if !all.iter().any(|item| !item.remote && item.name == branch) {
             bail!("Il branch locale non esiste: {branch}");
         }
-        // Git refuses a switch that would overwrite local changes. Never use --force.
-        run(workspace, &["switch", "--", branch])?;
+        Ok(vec!["switch".into(), "--".into(), branch.to_string()])
     }
+}
+
+fn run_owned(workspace: &Path, args: &[String]) -> Result<Vec<u8>> {
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run(workspace, &refs)
+}
+
+fn switch_branch(workspace: &Path, branch: &str, remote: bool) -> Result<()> {
+    // Git refuses a switch that would overwrite local changes. Never use --force.
+    run_owned(workspace, &switch_args(workspace, branch, remote)?)?;
     Ok(())
+}
+
+pub fn checkout(workspace: &Path, branch: &str, remote: bool) -> Result<()> {
+    switch_branch(workspace, branch, remote)
+}
+
+fn blocked_by_changes(status: &GitStatus) -> bool {
+    !status.changes.is_empty() && !status.merging && !status.cherry_picking
+        && !status.changes.iter().any(|change| change.label == "!")
+}
+
+pub fn checkout_with_changes(
+    workspace: &Path,
+    branch: &str,
+    remote: bool,
+    carry_changes: Option<bool>,
+) -> Result<CheckoutOutcome> {
+    let args = switch_args(workspace, branch, remote)?;
+    match carry_changes {
+        None => match run_owned(workspace, &args) {
+            Ok(_) => Ok(CheckoutOutcome { switched: true, needs_decision: false, stashed: false }),
+            Err(_error) if blocked_by_changes(&status(workspace)) => {
+                Ok(CheckoutOutcome { switched: false, needs_decision: true, stashed: false })
+            }
+            Err(error) => Err(error),
+        },
+        Some(carry) => {
+            let dirty = !status(workspace).changes.is_empty();
+            if !dirty {
+                run_owned(workspace, &args)?;
+                return Ok(CheckoutOutcome { switched: true, needs_decision: false, stashed: false });
+            }
+            let message = format!("helmcode: modifiche prima del passaggio al branch {branch}");
+            run(workspace, &["stash", "push", "--include-untracked", "-m", &message])?;
+            if let Err(error) = run_owned(workspace, &args) {
+                let _ = run(workspace, &["stash", "pop", "--index"]);
+                return Err(error);
+            }
+            if carry {
+                run(workspace, &["stash", "pop", "--index"]).context(
+                    "Branch cambiato, ma il ripristino delle modifiche è fallito: sono conservate nello stash",
+                )?;
+                Ok(CheckoutOutcome { switched: true, needs_decision: false, stashed: false })
+            } else {
+                Ok(CheckoutOutcome { switched: true, needs_decision: false, stashed: true })
+            }
+        }
+    }
 }
 
 pub fn create_branch(workspace: &Path, name: &str, base: Option<&str>, keep_changes: bool) -> Result<GitStatus> {
@@ -277,11 +342,11 @@ pub fn create_branch(workspace: &Path, name: &str, base: Option<&str>, keep_chan
     run(workspace, &["stash", "push", "--include-untracked", "-m", &message])?;
     if let Err(error) = run(workspace, &["switch", "-c", name, base]) {
         // Put the working tree back on the original branch instead of leaving changes stashed.
-        let _ = run(workspace, &["stash", "pop"]);
+        let _ = run(workspace, &["stash", "pop", "--index"]);
         return Err(error);
     }
     if keep_changes {
-        run(workspace, &["stash", "pop"])
+        run(workspace, &["stash", "pop", "--index"])
             .context("Branch creato, ma il ripristino delle modifiche è fallito: sono conservate nello stash")?;
     }
     Ok(status(workspace))
@@ -643,9 +708,9 @@ pub async fn git_log(state: State<'_, AppState>, expected_workspace: String, lim
 }
 
 #[tauri::command]
-pub async fn git_checkout(state: State<'_, AppState>, expected_workspace: String, branch: String, remote: bool) -> Result<(), String> {
+pub async fn git_checkout(state: State<'_, AppState>, expected_workspace: String, branch: String, remote: bool, carry_changes: Option<bool>) -> Result<CheckoutOutcome, String> {
     let root = checked_workspace(&state, &expected_workspace)?;
-    tauri::async_runtime::spawn_blocking(move || checkout(&root, &branch, remote)).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(move || checkout_with_changes(&root, &branch, remote, carry_changes)).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -921,7 +986,7 @@ fn run(workspace: &Path, args: &[&str]) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{abort_merge, branches, build_diff, checkout, cherry_pick, commit, commit_file_diff, commit_files, complete_merge, create_branch, file_diff, log, merge, parse_log, parse_status_v2_z, parse_status_z, pull, push, resolve_conflict, revert_all, revert_file, run, status, take_side};
+    use super::{abort_merge, branches, build_diff, checkout, checkout_with_changes, cherry_pick, commit, commit_file_diff, commit_files, complete_merge, create_branch, file_diff, log, merge, parse_log, parse_status_v2_z, parse_status_z, pull, push, resolve_conflict, revert_all, revert_file, run, status, take_side};
     use std::fs;
     use std::path::PathBuf;
 
@@ -1137,6 +1202,70 @@ mod tests {
         assert!(checkout(&repo.0, "feature", false).is_err());
         assert_eq!(fs::read_to_string(repo.0.join("file.txt")).unwrap(), "local work\n");
         assert!(branches(&repo.0).unwrap().iter().any(|branch| branch.name == "main" && branch.current));
+    }
+
+    fn branched_repository_with_local_changes() -> Repository {
+        let repo = Repository::new();
+        fs::write(repo.0.join("file.txt"), "base\n").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+        run(&repo.0, &["commit", "-m", "initial"]).unwrap();
+        run(&repo.0, &["switch", "-c", "feature"]).unwrap();
+        run(&repo.0, &["switch", "main"]).unwrap();
+        fs::write(repo.0.join("file.txt"), "local work\n").unwrap();
+        repo
+    }
+
+    #[test]
+    fn checkout_with_changes_requests_a_decision_only_when_git_blocks() {
+        let repo = Repository::new();
+        fs::write(repo.0.join("file.txt"), "main\n").unwrap();
+        run(&repo.0, &["add", "."]).unwrap();
+        run(&repo.0, &["commit", "-m", "initial"]).unwrap();
+        run(&repo.0, &["switch", "-c", "feature"]).unwrap();
+        fs::write(repo.0.join("file.txt"), "feature\n").unwrap();
+        run(&repo.0, &["commit", "-am", "feature"]).unwrap();
+        checkout(&repo.0, "main", false).unwrap();
+        fs::write(repo.0.join("file.txt"), "local work\n").unwrap();
+        let outcome = checkout_with_changes(&repo.0, "feature", false, None).unwrap();
+        assert!(!outcome.switched);
+        assert!(outcome.needs_decision);
+        assert!(!outcome.stashed);
+        assert_eq!(fs::read_to_string(repo.0.join("file.txt")).unwrap(), "local work\n");
+        assert!(branches(&repo.0).unwrap().iter().any(|branch| branch.name == "main" && branch.current));
+    }
+
+    #[test]
+    fn checkout_auto_carries_changes_when_git_allows_it() {
+        let repo = branched_repository_with_local_changes();
+        let outcome = checkout_with_changes(&repo.0, "feature", false, None).unwrap();
+        assert!(outcome.switched);
+        assert!(!outcome.needs_decision);
+        assert_eq!(fs::read_to_string(repo.0.join("file.txt")).unwrap().trim_end(), "local work");
+    }
+
+    #[test]
+    fn checkout_can_carry_changes_through_the_stash() {
+        let repo = branched_repository_with_local_changes();
+        run(&repo.0, &["add", "file.txt"]).unwrap();
+        let outcome = checkout_with_changes(&repo.0, "feature", false, Some(true)).unwrap();
+        assert!(outcome.switched);
+        assert!(!outcome.stashed);
+        assert_eq!(fs::read_to_string(repo.0.join("file.txt")).unwrap().trim_end(), "local work");
+        assert!(status(&repo.0).changes.iter().any(|change| change.path == "file.txt" && change.staged),
+            "staged changes survive the stash round trip");
+        let stashes = String::from_utf8_lossy(&run(&repo.0, &["stash", "list"]).unwrap()).to_string();
+        assert!(stashes.trim().is_empty(), "carried changes leave no stash behind");
+    }
+
+    #[test]
+    fn checkout_can_leave_changes_in_the_stash() {
+        let repo = branched_repository_with_local_changes();
+        let outcome = checkout_with_changes(&repo.0, "feature", false, Some(false)).unwrap();
+        assert!(outcome.switched);
+        assert!(outcome.stashed);
+        assert_eq!(fs::read_to_string(repo.0.join("file.txt")).unwrap().trim_end(), "base");
+        let stashes = String::from_utf8_lossy(&run(&repo.0, &["stash", "list"]).unwrap()).to_string();
+        assert!(stashes.contains("helmcode"), "set-aside changes remain recoverable in the stash");
     }
 
     #[test]

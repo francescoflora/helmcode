@@ -227,6 +227,11 @@ fn default_language(workspace: &Path, path: &Path) -> Option<Language> {
             .join("helmcode-jdtls")
             .join(format!("{:016x}", hasher.finish()));
         language.args = vec!["-data".to_owned(), data.to_string_lossy().into_owned()];
+        language.initialization_options = json!({
+            "extendedClientCapabilities": {
+                "classFileContentsSupport": true
+            }
+        });
     }
     Some(language)
 }
@@ -268,6 +273,12 @@ mod tests {
         let java_b = default_language(Path::new("/workspace-b"), Path::new("Main.java")).unwrap();
         assert_eq!(java_a.args[0], "-data");
         assert_ne!(java_a.args, java_b.args);
+        assert_eq!(
+            java_a
+                .initialization_options
+                .pointer("/extendedClientCapabilities/classFileContentsSupport"),
+            Some(&json!(true))
+        );
     }
 
     #[test]

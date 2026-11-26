@@ -20,8 +20,10 @@ const byName = (name: string) => LanguageDescription.matchLanguageName(languages
 
 /** Resolve language metadata without downloading a parser until a file opens. */
 export function getLanguageDescription(path: string): LanguageDescription | null {
+  if (path.startsWith("jdt://")) return byName("Java");
   const name = path.replace(/\\/g, "/").split("/").pop() ?? "";
   const lower = name.toLowerCase();
+  if (lower.endsWith(".class")) return byName("Java");
 
   if (/\.(jsonc|json5|code-workspace)$/.test(lower) ||
       /^(tsconfig|jsconfig)(\..+)?\.json$/.test(lower) ||

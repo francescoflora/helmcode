@@ -95,6 +95,7 @@ fn main() {
             commands::lsp_close_file,
             commands::lsp_save_file,
             commands::lsp_read_target,
+            commands::lsp_install_server,
         ])
         .run(tauri::generate_context!())
         .expect("errore nell'avvio di helmcode");

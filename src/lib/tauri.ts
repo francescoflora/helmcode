@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type {
+  CheckoutOutcome,
   DiagnosticsPayload,
   DirEntry,
   FileMatch,
@@ -72,8 +73,8 @@ export const api = {
   gitStatus: () => invoke<GitStatus>("git_status"),
   gitFetch: (expectedWorkspace: string) => invoke<GitStatus>("git_fetch", { expectedWorkspace }),
   gitBranches: (expectedWorkspace: string) => invoke<GitBranch[]>("git_branches", { expectedWorkspace }),
-  gitCheckout: (expectedWorkspace: string, branch: string, remote: boolean) =>
-    invoke<void>("git_checkout", { expectedWorkspace, branch, remote }),
+  gitCheckout: (expectedWorkspace: string, branch: string, remote: boolean, carryChanges: boolean | null = null) =>
+    invoke<CheckoutOutcome>("git_checkout", { expectedWorkspace, branch, remote, carryChanges }),
   gitCreateBranch: (expectedWorkspace: string, name: string, base: string | null, keepChanges: boolean) =>
     invoke<GitStatus>("git_create_branch", { expectedWorkspace, name, base, keepChanges }),
   gitCommit: (expectedWorkspace: string, message: string, push: boolean) =>
@@ -122,4 +123,8 @@ export function onWorkspaceChanged(handler: (workspace: string) => void): Promis
 
 export function onFsChanged(handler: (payload: FsChangedPayload) => void): Promise<UnlistenFn> {
   return listen<FsChangedPayload>("fs-changed", (event) => handler(event.payload));
+}
+
+export function onLspInstallProgress(handler: (payload: { serverId: string; message: string }) => void): Promise<UnlistenFn> {
+  return listen<{ serverId: string; message: string }>("lsp-install-progress", (event) => handler(event.payload));
 }

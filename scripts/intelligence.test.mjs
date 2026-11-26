@@ -385,3 +385,15 @@ test("close waits for a running save, then a reopened document can sync and save
     await reopenedSave;
   } finally { ipc.restore(); }
 });
+
+test("on-demand language server installation invokes the backend installer command", async () => {
+  const ipc = delayedIpc();
+  try {
+    const install = intelligence.installLanguageServer("java");
+    assert.equal(ipc.calls.length, 1);
+    assert.equal(ipc.calls[0].command, "lsp_install_server");
+    assert.deepEqual(ipc.calls[0].args, { serverId: "java" });
+    ipc.calls[0].resolve("Eclipse JDT LS 1.61.0 installato");
+    assert.equal(await install, "Eclipse JDT LS 1.61.0 installato");
+  } finally { ipc.restore(); }
+});
