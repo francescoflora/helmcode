@@ -424,7 +424,14 @@ kbd { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 .intelligence-details { left: 10px; right: 10px; bottom: 32px; max-width: 560px; max-height: calc(100% - 44px); overflow-y: auto; padding-right: 34px; }
 .intelligence-details p { margin-top: 8px; color: var(--secondary); line-height: 1.7; overflow-wrap: anywhere; }
 .intelligence-dismiss { position: absolute; top: 8px; right: 8px; }
-.intelligence-retry { margin-top: 10px; padding: 5px 9px; border: 1px solid var(--border); border-radius: 4px; }
+.intelligence-install-inline { flex-shrink: 0; padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 4px; color: var(--accent); font-size: 11px; line-height: 18px; }
+.intelligence-install-inline:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.intelligence-install-inline:disabled, .intelligence-install-primary:disabled, .intelligence-retry:disabled { opacity: 0.55; cursor: default; }
+.intelligence-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.intelligence-install-primary { padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 500; }
+.intelligence-install-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.intelligence-retry { padding: 5px 9px; border: 1px solid var(--border); border-radius: 4px; }
+.intelligence-error { color: var(--danger) !important; }
 .symbol-menu { position: fixed; z-index: 50; min-width: 292px; padding: 5px; border: 1px solid color-mix(in srgb, var(--overlay) 9.41%, transparent); border-radius: 6px; background: var(--color-elevated); box-shadow: 0 8px 30px color-mix(in srgb, var(--shadow) 53.33%, transparent); }
 .symbol-menu button { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 18px; padding: 8px; border-radius: 3px; font-size: 12px; text-align: left; }
 .symbol-menu button:hover, .symbol-menu button:focus-visible, .symbol-targets-list button:hover { background: color-mix(in srgb, var(--overlay) 8.63%, transparent); }

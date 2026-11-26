@@ -4,6 +4,7 @@ import { relativeTime } from "../lib/relativeTime";
 import type { GitBranch } from "../types";
 import { CheckIcon, ChevronRightIcon, CloudIcon, GitBranchIcon, PlusIcon, StatusBranchIcon } from "./Icons";
 import { CreateBranchModal } from "./CreateBranchModal";
+import { CheckoutChangesModal } from "./CheckoutChangesModal";
 
 type Props = {
   workspace: string;
@@ -27,6 +28,7 @@ export function BranchPicker({ workspace, version, current, variant, disabled, h
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
+  const [decision, setDecision] = useState<GitBranch | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
@@ -41,7 +43,7 @@ export function BranchPicker({ workspace, version, current, variant, disabled, h
     return () => { cancelled = true; };
   }, [workspace, version, open]);
 
-  useEffect(() => { setOpen(false); setCreating(false); setBranches([]); setError(null); }, [workspace]);
+  useEffect(() => { setOpen(false); setCreating(false); setPending(null); setDecision(null); setBranches([]); setError(null); }, [workspace]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
@@ -61,21 +63,32 @@ export function BranchPicker({ workspace, version, current, variant, disabled, h
     };
   }, [open]);
 
-  async function select(branch: GitBranch) {
+  async function checkout(branch: GitBranch, carryChanges: boolean | null) {
     if (pending) return;
-    if (!branch.remote && branch.name === current) { setOpen(false); return; }
-    if (onBeforeCheckout && !(await onBeforeCheckout())) return;
     setPending(branch.name);
     setError(null);
     try {
-      await api.gitCheckout(workspace, branch.name, branch.remote);
+      const outcome = await api.gitCheckout(workspace, branch.name, branch.remote, carryChanges);
+      if (outcome.needsDecision) {
+        setDecision(branch);
+        return;
+      }
+      setDecision(null);
       setOpen(false);
+      if (outcome.stashed) onNotify?.("Modifiche conservate nello stash. Recuperale con git stash pop.");
       onChanged?.();
     } catch (reason) {
       setError(String(reason));
     } finally {
       setPending(null);
     }
+  }
+
+  async function select(branch: GitBranch) {
+    if (pending) return;
+    if (!branch.remote && branch.name === current) { setOpen(false); return; }
+    if (onBeforeCheckout && !(await onBeforeCheckout())) return;
+    await checkout(branch, null);
   }
 
   const local = branches.filter((branch) => !branch.remote);
@@ -129,6 +142,13 @@ export function BranchPicker({ workspace, version, current, variant, disabled, h
           onChanged?.();
         }}
         onClose={() => setCreating(false)} />}
+      {decision && <CheckoutChangesModal from={current} to={decision.name}
+        onChoose={(carryChanges) => {
+          const target = decision;
+          setDecision(null);
+          void checkout(target, carryChanges);
+        }}
+        onClose={() => setDecision(null)} />}
     </div>
   );
 }

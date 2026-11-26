@@ -58,15 +58,17 @@ const extensions: Record<string, FileKind> = {
   sql: "database", db: "database", sqlite: "database", sqlite3: "database", csv: "database", tsv: "database",
   pdf: "document", doc: "document", docx: "document", odt: "document", rtf: "document", txt: "document", log: "document",
   sh: "shell", bash: "shell", zsh: "shell", fish: "shell", ps1: "shell", psm1: "shell", psd1: "shell", bat: "shell", cmd: "shell",
-  c: "c", h: "c", cc: "cpp", cpp: "cpp", cxx: "cpp", hpp: "cpp", hxx: "cpp", cs: "csharp", java: "java", kt: "java", kts: "java",
+  c: "c", h: "c", cc: "cpp", cpp: "cpp", cxx: "cpp", hpp: "cpp", hxx: "cpp", cs: "csharp", java: "java", class: "java", kt: "java", kts: "java",
   go: "go", rb: "ruby", rake: "ruby", php: "php", vue: "vue", svelte: "svelte", woff: "font", woff2: "font", ttf: "font", otf: "font",
 };
 
 function filename(path: string): string {
-  return path.replace(/\\/g, "/").split("/").filter(Boolean).at(-1)?.toLowerCase() ?? "";
+  const clean = path.startsWith("jdt://") ? path.split(/[?#]/, 1)[0] : path;
+  return clean.replace(/\\/g, "/").split("/").filter(Boolean).at(-1)?.toLowerCase() ?? "";
 }
 
 export function getFileType(path: string): FileType {
+  if (path.startsWith("jdt://")) return types.java;
   const name = filename(path);
   if (name.startsWith(".git") || name === ".mailmap") return types.git;
   if (/^(dockerfile(?:\..*)?|compose\.ya?ml|docker-compose(?:\..*)?\.ya?ml|\.dockerignore)$/.test(name)) return types.docker;

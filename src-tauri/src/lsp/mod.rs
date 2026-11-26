@@ -1,6 +1,8 @@
 mod file_changes;
+mod installer;
 mod languages;
 pub use file_changes::{FileMove, OpenDocument};
+pub use installer::{install_server, InstallableServer};
 #[cfg(test)]
 #[path = "tests.rs"]
 mod protocol_tests;
@@ -40,6 +42,8 @@ pub struct LanguageStatus {
     pub state: &'static str,
     pub message: Option<String>,
     pub server: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installable: Option<InstallableServer>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,6 +159,10 @@ impl LspManager {
         Ok(())
     }
 
+    pub fn clear_failures(&mut self) {
+        self.failures.clear();
+    }
+
     pub fn read_target(&self, path: &Path) -> Result<String> {
         let canonical = dunce::canonicalize(path).context("destinazione non disponibile")?;
         let authorized = self.clients.values().any(|client| {
@@ -173,6 +181,39 @@ impl LspManager {
         }
         std::fs::read_to_string(canonical).context("destinazione non leggibile come testo UTF-8")
     }
+
+    pub fn virtual_target(&self, uri: &str) -> Result<VirtualTargetClient> {
+        if !is_virtual_jdt_uri(uri) {
+            bail!("destinazione virtuale non supportata");
+        }
+        let client = self
+            .clients
+            .values()
+            .find(|client| {
+                client
+                    .virtual_targets
+                    .lock()
+                    .map(|targets| targets.contains(uri))
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .context("destinazione non restituita da un language server del progetto corrente")?;
+        Ok(VirtualTargetClient { client })
+    }
+}
+
+pub struct VirtualTargetClient {
+    client: Arc<LspClient>,
+}
+
+impl VirtualTargetClient {
+    pub fn read(&self, uri: &str) -> Result<String> {
+        self.client.read_virtual_target(uri)
+    }
+}
+
+pub fn is_virtual_jdt_uri(uri: &str) -> bool {
+    uri.starts_with("jdt://")
 }
 
 impl Drop for LspManager {
@@ -190,9 +231,31 @@ pub fn status_for(
     message: Option<String>,
 ) -> LanguageStatus {
     match language_for(workspace, path) {
-        Ok(Some(language)) => LanguageStatus { language: language.language_id, state, message, server: Some(language.command) },
-        Ok(None) => LanguageStatus { language: path.extension().unwrap_or_default().to_string_lossy().into_owned(), state: "unsupported", message: Some("Nessun language server configurato. I suggerimenti locali restano disponibili; puoi aggiungere un server in .helmcode/languages.json.".into()), server: None },
-        Err(error) => LanguageStatus { language: String::new(), state: "error", message: Some(format!("{error:#}")), server: None },
+        Ok(Some(language)) => LanguageStatus {
+            language: language.language_id,
+            state,
+            message,
+            server: Some(language.command),
+            installable: if state == "missing" {
+                installer::installable_for_key(&language.key)
+            } else {
+                None
+            },
+        },
+        Ok(None) => LanguageStatus {
+            language: path.extension().unwrap_or_default().to_string_lossy().into_owned(),
+            state: "unsupported",
+            message: Some("Nessun language server configurato. I suggerimenti locali restano disponibili; puoi aggiungere un server in .helmcode/languages.json.".into()),
+            server: None,
+            installable: None,
+        },
+        Err(error) => LanguageStatus {
+            language: String::new(),
+            state: "error",
+            message: Some(format!("{error:#}")),
+            server: None,
+            installable: None,
+        },
     }
 }
 
@@ -270,13 +333,18 @@ impl DocumentClient {
                 primary
             }
         };
-        let (targets, authorized, unsupported_uri) =
+        let (targets, authorized, virtual_authorized, unsupported_uri) =
             navigation_targets(&self.client.workspace, &result);
         self.client
             .targets
             .lock()
             .map_err(|_| anyhow!("destinazioni LSP bloccate"))?
             .extend(authorized);
+        self.client
+            .virtual_targets
+            .lock()
+            .map_err(|_| anyhow!("destinazioni virtuali LSP bloccate"))?
+            .extend(virtual_authorized);
         if targets.is_empty() && unsupported_uri {
             bail!("Il server ha restituito una sorgente virtuale o un archivio che non può essere aperto come file.");
         }
@@ -450,6 +518,7 @@ struct LspClient {
     initialization: Mutex<Option<Reply>>,
     documents: Mutex<HashMap<String, Document>>,
     targets: Mutex<HashSet<PathBuf>>,
+    virtual_targets: Mutex<HashSet<String>>,
     workspace: PathBuf,
     created_at: Instant,
 }
@@ -486,6 +555,7 @@ impl LspClient {
             initialization: Mutex::new(None),
             documents: Mutex::new(HashMap::new()),
             targets: Mutex::new(HashSet::new()),
+            virtual_targets: Mutex::new(HashSet::new()),
             workspace: workspace.to_path_buf(),
             created_at: Instant::now(),
         };
@@ -648,6 +718,21 @@ impl LspClient {
             self.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}))?;
         }
         Ok(())
+    }
+
+    fn read_virtual_target(&self, uri: &str) -> Result<String> {
+        let result = self.request(
+            "java/classFileContents",
+            json!({ "uri": uri }),
+            Duration::from_secs(15),
+        )?;
+        let Some(text) = result.as_str() else {
+            bail!("contenuto della classe non disponibile dal language server");
+        };
+        if text.len() > 2 * 1024 * 1024 {
+            bail!("destinazione non leggibile o troppo grande");
+        }
+        Ok(text.to_owned())
     }
 
     fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
@@ -1003,7 +1088,7 @@ fn document_symbol_ranges(value: &Value, ranges: &mut Vec<(SymbolRange, SymbolRa
 fn navigation_targets(
     workspace: &Path,
     value: &Value,
-) -> (Vec<NavigationTarget>, HashSet<PathBuf>, bool) {
+) -> (Vec<NavigationTarget>, HashSet<PathBuf>, HashSet<String>, bool) {
     let values: Vec<&Value> = match value {
         Value::Array(values) => values.iter().collect(),
         Value::Null => Vec::new(),
@@ -1011,6 +1096,7 @@ fn navigation_targets(
     };
     let mut targets = Vec::new();
     let mut authorized = HashSet::new();
+    let mut virtual_authorized = HashSet::new();
     let mut seen = HashSet::new();
     let mut unsupported_uri = false;
     for value in values {
@@ -1019,10 +1105,6 @@ fn navigation_targets(
             .or_else(|| value.get("uri"))
             .and_then(Value::as_str)
         else {
-            continue;
-        };
-        let Some(path) = uri_path(uri) else {
-            unsupported_uri = true;
             continue;
         };
         let Some(position) = value
@@ -1038,22 +1120,38 @@ fn navigation_targets(
             .and_then(Value::as_u64)
             .unwrap_or(0)
             + 1;
-        if !seen.insert((path.clone(), line, column)) {
-            continue;
+        if let Some(path) = uri_path(uri) {
+            let dedup_key = path.to_string_lossy().into_owned();
+            if !seen.insert((dedup_key, line, column)) {
+                continue;
+            }
+            let (target, external) = match path.strip_prefix(workspace) {
+                Ok(relative) => (relative.to_string_lossy().replace('\\', "/"), false),
+                Err(_) => (path.to_string_lossy().into_owned(), true),
+            };
+            authorized.insert(path);
+            targets.push(NavigationTarget {
+                path: target,
+                line,
+                column,
+                external,
+            });
+        } else if is_virtual_jdt_uri(uri) {
+            if !seen.insert((uri.to_owned(), line, column)) {
+                continue;
+            }
+            virtual_authorized.insert(uri.to_owned());
+            targets.push(NavigationTarget {
+                path: uri.to_owned(),
+                line,
+                column,
+                external: true,
+            });
+        } else {
+            unsupported_uri = true;
         }
-        let (target, external) = match path.strip_prefix(workspace) {
-            Ok(relative) => (relative.to_string_lossy().replace('\\', "/"), false),
-            Err(_) => (path.to_string_lossy().into_owned(), true),
-        };
-        authorized.insert(path);
-        targets.push(NavigationTarget {
-            path: target,
-            line,
-            column,
-            external,
-        });
     }
-    (targets, authorized, unsupported_uri)
+    (targets, authorized, virtual_authorized, unsupported_uri)
 }
 
 fn fail_pending(pending: &Pending, message: &str) {
@@ -1241,9 +1339,42 @@ fn server_response(
 fn server_command(workspace: &Path, command: &str, args: &[String]) -> Result<Command> {
     let executable = resolve_executable(workspace, command)
         .with_context(|| format!("eseguibile {command} non trovato"))?;
+    #[cfg(windows)]
+    if is_python_script(&executable) {
+        if let Some(python) = resolve_executable(workspace, "python")
+            .or_else(|| resolve_executable(workspace, "python3"))
+        {
+            let mut process = Command::new(python);
+            process.arg(&executable).args(args);
+            return Ok(process);
+        }
+    }
     let mut process = Command::new(executable);
     process.args(args);
     Ok(process)
+}
+
+#[cfg(windows)]
+fn is_python_script(path: &Path) -> bool {
+    if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("py"))
+    {
+        return true;
+    }
+    if path.extension().is_some() {
+        return false;
+    }
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut header = [0u8; 128];
+    let Ok(read) = file.read(&mut header) else {
+        return false;
+    };
+    let first_line = String::from_utf8_lossy(&header[..read]);
+    let first_line = first_line.lines().next().unwrap_or("");
+    first_line.starts_with("#!") && first_line.to_ascii_lowercase().contains("python")
 }
 
 fn resolve_executable(workspace: &Path, command: &str) -> Option<PathBuf> {
@@ -1272,6 +1403,7 @@ fn resolve_executable(workspace: &Path, command: &str) -> Option<PathBuf> {
     if let Some(paths) = std::env::var_os("PATH") {
         directories.extend(std::env::split_paths(&paths));
     }
+    directories.extend(installer::managed_bin_dirs());
     #[cfg(windows)]
     // npm creates extensionless POSIX shims beside Windows launchers.
     // Prefer the Windows executable to avoid ERROR_BAD_EXE_FORMAT (193).
@@ -1501,17 +1633,23 @@ mod tests {
             {"uri":file_uri(&inside).unwrap(),"range":{"start":{"line":3,"character":5}}},
             {"targetUri":file_uri(&inside).unwrap(),"targetSelectionRange":{"start":{"line":3,"character":5}}},
             {"uri":file_uri(&outside).unwrap(),"range":{"start":{"line":0,"character":0}}},
-            {"uri":"jdt://contents/java.lang/String.class","range":{"start":{"line":0,"character":0}}}
+            {"uri":"jdt://contents/java.lang/String.class?=app","range":{"start":{"line":10,"character":2}}},
+            {"uri":"zip://archive/Other.class","range":{"start":{"line":0,"character":0}}}
         ]);
-        let (targets, authorized, unsupported) = navigation_targets(&workspace, &values);
-        assert_eq!(targets.len(), 2);
+        let (targets, authorized, virtual_authorized, unsupported) =
+            navigation_targets(&workspace, &values);
+        assert_eq!(targets.len(), 3);
         assert_eq!(targets[0].path, "some file.ts");
         assert_eq!((targets[0].line, targets[0].column), (4, 6));
         assert!(!targets[0].external);
         assert!(targets[1].external);
+        assert_eq!(targets[2].path, "jdt://contents/java.lang/String.class?=app");
+        assert_eq!((targets[2].line, targets[2].column), (11, 3));
+        assert!(targets[2].external);
         assert_eq!(authorized.len(), 2);
+        assert!(virtual_authorized.contains("jdt://contents/java.lang/String.class?=app"));
         assert!(unsupported);
-        let (single, _, _) = navigation_targets(&workspace, &values[0]);
+        let (single, _, _, _) = navigation_targets(&workspace, &values[0]);
         assert_eq!(single.len(), 1);
     }
 }

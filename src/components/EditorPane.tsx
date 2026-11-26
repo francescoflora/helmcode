@@ -12,7 +12,8 @@ import { helmcodeTheme } from "../theme";
 import { detectIndentUnit, getLanguageDescription, languageName } from "../lib/languages";
 import { externalTextChange, externalTextTransaction } from "../lib/editorChanges";
 import { wordHighlightExtension } from "../lib/editorHighlights";
-import { intelligenceExtension, navigateSymbol, syncIntelligence, type IntelligenceStatus, type NavigationKind, type NavigationTarget } from "../lib/intelligence";
+import { intelligenceExtension, installLanguageServer, navigateSymbol, syncIntelligence, type IntelligenceStatus, type NavigationKind, type NavigationTarget } from "../lib/intelligence";
+import { isTauri, onLspInstallProgress } from "../lib/tauri";
 import type { LspDiagnostic, LspPosition, RevealRequest, Tab } from "../types";
 import { BrandMark } from "./BrandMark";
 import { BrandWordmark } from "./BrandWordmark";
@@ -79,9 +80,14 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
   const [status, setStatus] = useState<IntelligenceStatus | null>(null);
   const [retry, setRetry] = useState(0);
   const [statusDetails, setStatusDetails] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [installProgress, setInstallProgress] = useState("");
+  const [installError, setInstallError] = useState("");
   const [navigationMessage, setNavigationMessage] = useState("");
   const [targets, setTargets] = useState<NavigationTarget[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; offset: number } | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   onNavigateRef.current = onNavigate;
@@ -116,11 +122,54 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
   useEffect(() => {
     setStatus(null);
     setStatusDetails(false);
+    setInstallError("");
     setNavigationMessage("");
     setTargets([]);
     setMenu(null);
     ++navigationRequest.current;
   }, [workspace, tab?.path]);
+
+  useEffect(() => {
+    if (!installing || !isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const expectedId = status?.installable?.id;
+    void onLspInstallProgress((payload) => {
+      if (disposed || (expectedId && payload.serverId !== expectedId)) return;
+      setInstallProgress(payload.message);
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [installing, status?.installable?.id]);
+
+  const handleInstallServer = () => {
+    const target = status?.installable;
+    if (!target || installing) return;
+    setInstalling(true);
+    setInstallError("");
+    setInstallProgress(`Installazione di ${target.label}…`);
+    setNavigationMessage("");
+    void installLanguageServer(target.id).then((message) => {
+      if (!mountedRef.current) return;
+      setInstalling(false);
+      setInstallProgress("");
+      setStatusDetails(false);
+      setNavigationMessage(`${message}. Avvio del language server…`);
+      setStatus(null);
+      setRetry((value) => value + 1);
+    }).catch((error: unknown) => {
+      if (!mountedRef.current) return;
+      setInstalling(false);
+      setInstallProgress("");
+      setInstallError(String(error));
+      setStatusDetails(true);
+    });
+  };
 
   useEffect(() => {
     if (!tab || tab.external || locked) return;
@@ -374,7 +423,12 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
       <div ref={hostRef} data-language-detected={languageName(tab.path)} className="editor-code-host" />
       <div className="intelligence-bar">
         <button type="button" className="intelligence-status" data-state={tab.external ? "external" : status?.state ?? "starting"} title={status?.message ?? "Autocompletamento: Ctrl+Spazio · Ctrl+clic: definizione o implementazione in base al simbolo"} aria-expanded={statusDetails} onClick={() => { setMenu(null); setTargets([]); setStatusDetails((value) => !value); }}>{statusText}</button>
-        <span className="intelligence-message" role="status">{navigationMessage}</span>
+        {!tab.external && status?.state === "missing" && status.installable && (
+          <button type="button" className="intelligence-install-inline" disabled={installing} title={`Installa ${status.installable.label} (${status.installable.requirement})`} onClick={handleInstallServer}>
+            {installing ? "Installazione…" : `Installa ${status.server ?? "server"}`}
+          </button>
+        )}
+        <span className="intelligence-message" role="status">{installProgress || navigationMessage}</span>
         {!tab.external && <span className="intelligence-shortcuts" title="Ctrl+clic: definizione o implementazione in base al punto cliccato · Ctrl+Spazio: suggerimenti · F12: definizione · Ctrl+F12: implementazione · Ctrl+Shift+F12: dichiarazione">Ctrl+clic: vai al simbolo</span>}
       </div>
       {statusDetails && <div ref={panelRef} className="intelligence-details" role="region" aria-label="Stato autocompletamento">
@@ -382,8 +436,20 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
         <strong>{statusText}</strong>
         <p>{tab.external ? "Questo file appartiene a una dipendenza ed è aperto in sola lettura." : status?.message ?? "Il language server analizza il progetto per suggerire simboli, metodi e classi."}</p>
         {!tab.external && <><p>Ctrl+Spazio apre i suggerimenti. Ctrl+clic su un utilizzo apre la definizione; sulla dichiarazione o sulla firma cerca le implementazioni. Se non trova implementazioni, cerca una dichiarazione diversa da quella corrente. F12 apre la definizione, Ctrl+F12 le implementazioni e Ctrl+Shift+F12 la dichiarazione. Le tre operazioni sono disponibili anche dal menu con clic destro.</p>
-          {status?.state !== "ready" && <p>Installa il server indicato e rendilo disponibile nel PATH. Per altri linguaggi o percorsi personalizzati usa <code>.helmcode/languages.json</code> (vedi README).</p>}
-          <button type="button" className="ghost-button intelligence-retry" onClick={() => { setStatus(null); setRetry((value) => value + 1); }}>Riprova collegamento</button></>}
+          {status?.state === "missing" && status.installable ? (
+            <p>{status.installable.requirement}. Il server viene installato nella cartella locale di helmcode senza modificare il PATH di sistema.</p>
+          ) : status?.state !== "ready" && (
+            <p>Installa il server indicato e rendilo disponibile nel PATH. Per altri linguaggi o percorsi personalizzati usa <code>.helmcode/languages.json</code> (vedi README).</p>
+          )}
+          {installError && <p className="intelligence-error" role="alert">{installError}</p>}
+          <div className="intelligence-actions">
+            {status?.state === "missing" && status.installable && (
+              <button type="button" className="intelligence-install-primary" disabled={installing} onClick={handleInstallServer}>
+                {installing ? (installProgress || "Installazione in corso…") : `Installa ${status.installable.label}`}
+              </button>
+            )}
+            <button type="button" className="ghost-button intelligence-retry" disabled={installing} onClick={() => { setInstallError(""); setStatus(null); setRetry((value) => value + 1); }}>Riprova collegamento</button>
+          </div></>}
       </div>}
       {menu && <div ref={panelRef} className="symbol-menu" role="menu" aria-label="Navigazione simbolo" style={{ left: menu.x, top: menu.y }} onKeyDown={(event) => {
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
@@ -395,7 +461,10 @@ export function EditorPane({ workspace, tab, diagnostics, reveal, onChange, onSa
       }}>{navigationActions.map((action) => <button key={action.kind} type="button" role="menuitem" onClick={() => navigateRef.current(action.kind, menu.offset)}><span>{action.label}</span><kbd>{action.shortcut}</kbd></button>)}</div>}
       {targets.length > 0 && <div ref={panelRef} className="symbol-targets" role="region" aria-label="Destinazioni del simbolo">
         <div className="symbol-targets-heading"><strong>{targets.length} destinazioni</strong><button type="button" className="icon-button" aria-label="Chiudi destinazioni" onClick={() => { setTargets([]); viewRef.current?.focus(); }}><XIcon className="h-3.5 w-3.5" /></button></div>
-        <div className="symbol-targets-list">{targets.map((target) => <button type="button" key={`${target.path}:${target.line}:${target.column}`} title={target.path} onClick={() => { setTargets([]); void onNavigateRef.current(target); }}><FileTypeIcon path={target.path} className="h-4 w-4 shrink-0" /><span>{target.path}</span><small>{target.line}:{target.column}{target.external ? " · sola lettura" : ""}</small></button>)}</div>
+        <div className="symbol-targets-list">{targets.map((target) => {
+          const displayPath = target.path.startsWith("jdt://") ? target.path.split(/[?#]/, 1)[0] : target.path;
+          return <button type="button" key={`${target.path}:${target.line}:${target.column}`} title={displayPath} onClick={() => { setTargets([]); void onNavigateRef.current(target); }}><FileTypeIcon path={target.path} className="h-4 w-4 shrink-0" /><span>{displayPath}</span><small>{target.line}:{target.column}{target.external ? " · sola lettura" : ""}</small></button>;
+        })}</div>
       </div>}
     </div>
   );

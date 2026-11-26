@@ -6,11 +6,18 @@ import { syntaxTree } from "@codemirror/language";
 import { EditorState, Transaction, type Extension, type Text, type TransactionSpec } from "@codemirror/state";
 import { invoke } from "@tauri-apps/api/core";
 
+export type InstallableServer = {
+  id: string;
+  label: string;
+  requirement: string;
+};
+
 export type IntelligenceStatus = {
   language: string;
   state: "ready" | "missing" | "unsupported" | "error";
   server?: string | null;
   message?: string | null;
+  installable?: InstallableServer | null;
 };
 export type NavigationKind = "auto" | "definition" | "declaration" | "implementation";
 export type NavigationTarget = { path: string; line: number; column: number; external?: boolean };
@@ -165,6 +172,8 @@ export function saveIntelligence(workspace: string, path: string, text: string):
 }
 export const readNavigationTarget = (workspace: string, path: string) =>
   invoke<string>("lsp_read_target", { expectedWorkspace: workspace, path });
+export const installLanguageServer = (serverId: string) =>
+  invoke<string>("lsp_install_server", { serverId });
 export const navigateSymbol = (workspace: string, path: string, text: string, position: Position, kind: NavigationKind) =>
   intelligenceSuspended(workspace) ? Promise.reject(new Error("Aggiornamento dei file in corso")) :
     invoke<NavigationTarget[]>("lsp_navigate", { expectedWorkspace: workspace, path, text, ...position, kind });

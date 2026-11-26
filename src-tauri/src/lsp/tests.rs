@@ -87,6 +87,10 @@ function handle(message) {
     targetRange: { start: { line, character: 0 }, end: { line, character: 12 } },
     targetSelectionRange: { start: { line, character: 6 }, end: { line, character: 12 } }
   })) });
+  if (method === 'java/classFileContents') {
+    send({ id, result: `// decompiled ${params.uri}\npublic final class String {}` });
+    return;
+  }
   if (method === 'test/inspect') send({ id, result: { events, protocolErrors, replies, configResult } });
   if (method === 'test/echo') setTimeout(() => {
     replies.push(params.value);
@@ -157,6 +161,7 @@ pub(super) fn spawn_test_client(mut command: Command, workspace: PathBuf, settin
         initialization: Mutex::new(None),
         documents: Mutex::new(HashMap::new()),
         targets: Mutex::new(HashSet::new()),
+        virtual_targets: Mutex::new(HashSet::new()),
         workspace: workspace.clone(),
         created_at: Instant::now(),
     });
@@ -628,11 +633,34 @@ fn auto_falls_back_to_implementation_when_definition_and_declaration_are_unsuppo
 }
 
 #[test]
+fn auto_navigates_to_jdt_virtual_class_files_and_reads_contents() {
+    let (client, document) = navigation_fixture();
+    let jdt_uri = "jdt://contents/java.base/java.lang/String.class?=app/jrt-fs.jar";
+    set_navigation(
+        &client,
+        json!({"definition":{"uri":jdt_uri,"range":{"start":{"line":42,"character":18},"end":{"line":42,"character":24}}}}),
+    );
+    let targets = document.navigate("String value;", 0, 3, "auto").unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].path, jdt_uri);
+    assert_eq!((targets[0].line, targets[0].column), (43, 19));
+    assert!(targets[0].external);
+    assert!(client.virtual_targets.lock().unwrap().contains(jdt_uri));
+    let mut manager = LspManager::new();
+    manager.clients.insert("java:test".into(), client.clone());
+    let contents = manager.virtual_target(jdt_uri).unwrap().read(jdt_uri).unwrap();
+    assert!(contents.contains("public final class String"));
+    assert!(manager
+        .virtual_target("jdt://contents/java.base/java.lang/Unauthorized.class")
+        .is_err());
+}
+
+#[test]
 fn auto_preserves_the_error_for_virtual_only_destinations() {
     let (client, document) = navigation_fixture();
     set_navigation(
         &client,
-        json!({"definition":{"uri":"jdt://contents/java.lang/String.class","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":6}}}}),
+        json!({"definition":{"uri":"zip://archive/java.lang/String.class","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":6}}}}),
     );
     let error = document
         .navigate("String value;", 0, 3, "auto")
